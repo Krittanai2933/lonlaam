@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4 # version from package.json "packageManager"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Unit tests
+        run: pnpm test
+      - name: Build (web + worker dry-run bundle)
+        run: pnpm build
+
+      # Everything below runs against local wrangler dev state; no Cloudflare credentials.
+      - name: Local D1 migrations
+        run: pnpm --filter @nampu/api db:migrate:local
+      - name: API smoke test
+        run: pnpm --filter @nampu/api smoke
+      - name: Install Chromium
+        run: pnpm --filter @nampu/e2e exec playwright install --with-deps chromium
+      - name: Browser e2e
+        run: pnpm e2e
+        env:
+          CI: '1'
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: e2e/playwright-report
+          retention-days: 7
