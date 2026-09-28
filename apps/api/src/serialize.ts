@@ -2,7 +2,13 @@ import type { Creator, Invoice, Project, PublicProject, Supporter } from '@nampu
 import type { CreatorRow, InvoiceRow, ProjectRow } from './db/schema'
 import { msatToSats } from './lib/util'
 
-export const coverUrl = (origin: string, key: string | null) => (key ? `${origin}/media/${key}` : null)
+/** `media` is mediaBase(): the R2 public domain or <origin>/media. */
+export const coverUrl = (media: string, key: string | null) => (key ? `${media}/${key}` : null)
+
+// Story images are stored in the markdown as absolute URLs, possibly on an old host
+// (workers.dev, <origin>/media). Point them at the current media base on read.
+const STORED_MEDIA = /https?:\/\/[^\s/()"'<>]+\/media\/((?:covers|images)\/[\w-]+\/[\w-]+\.(?:jpg|png|webp|gif))/g
+export const rewriteMedia = (body: string, media: string) => body.replace(STORED_MEDIA, `${media}/$1`)
 
 export function toCreator(r: CreatorRow): Creator {
   return {
@@ -20,14 +26,14 @@ export function toCreator(r: CreatorRow): Creator {
 /** Projects only exist for onboarded creators, so handle/displayName are set in practice. */
 export type ProjectCreator = Pick<CreatorRow, 'handle' | 'displayName' | 'npub'>
 
-export function toProject(r: ProjectRow, creator: ProjectCreator, origin: string): Project {
+export function toProject(r: ProjectRow, creator: ProjectCreator, media: string): Project {
   return {
     id: r.id,
     slug: r.slug,
     title: r.title,
     summary: r.summary,
-    body: r.body,
-    coverUrl: coverUrl(origin, r.coverKey),
+    body: rewriteMedia(r.body, media),
+    coverUrl: coverUrl(media, r.coverKey),
     category: r.category,
     goalSats: r.goalSats,
     milestones: r.milestones,
@@ -42,8 +48,8 @@ export function toProject(r: ProjectRow, creator: ProjectCreator, origin: string
   }
 }
 
-export function toPublicProject(r: ProjectRow, creator: ProjectCreator, origin: string): PublicProject {
-  const { updatedAt: _u, status, ...rest } = toProject(r, creator, origin)
+export function toPublicProject(r: ProjectRow, creator: ProjectCreator, media: string): PublicProject {
+  const { updatedAt: _u, status, ...rest } = toProject(r, creator, media)
   if (status === 'draft') throw new Error('draft projects are not public')
   return { ...rest, status }
 }

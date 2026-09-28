@@ -65,6 +65,9 @@
     // Canonical origin: OG tags, cover URLs, Nostr/LNURL auth, and the redirect target for
     // every other host. Empty = use the request origin (local dev).
     "PUBLIC_ORIGIN": "https://lonlaam.com",
+    // Public domain of the nampu-media R2 bucket: cover/story image URLs point here directly
+    // (no Worker request per image). Empty = serve through this Worker's /media route.
+    "MEDIA_ORIGIN": "https://media.lonlaam.com",
     "SITE_NAME": "ล้นหลาม",
     // "true" only for local dev: allows http:// LNURL endpoints and host:port Lightning Addresses.
     "ALLOW_INSECURE_LNURL": "false"
@@ -75,7 +78,7 @@
   "env": {
     // wrangler dev --env dev (also used by the local smoke test)
     "dev": {
-      "vars": { "PUBLIC_ORIGIN": "", "SITE_NAME": "ล้นหลาม (dev)", "ALLOW_INSECURE_LNURL": "true" },
+      "vars": { "PUBLIC_ORIGIN": "", "MEDIA_ORIGIN": "", "SITE_NAME": "ล้นหลาม (dev)", "ALLOW_INSECURE_LNURL": "true" },
       // No production routes locally: wrangler dev would rewrite request.url to lonlaam.com,
       // breaking the Nostr relay / LNURL host checks against localhost.
       "routes": [],

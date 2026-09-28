@@ -1,7 +1,7 @@
 import type { ListProjectsResponse, ProjectSummary } from '@nampu/types'
 import { type SQL, and, asc, desc, eq, gt, isNull, or, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
-import { type AppEnv, publicOrigin } from '../context'
+import { type AppEnv, mediaBase } from '../context'
 import { creators, invoices, projects } from '../db/schema'
 import { encodeOffsetCursor, MAX_OFFSET, parseDiscoverQuery, WEEK_MS } from '../lib/discover'
 import { likePattern } from '../lib/supporters'
@@ -46,10 +46,10 @@ export const discoverRoutes = new Hono<AppEnv>().get('/', async (c) => {
     .limit(query.limit + 1)
     .offset(query.offset)
 
-  const origin = publicOrigin(c.env, c.req.url)
+  const media = mediaBase(c.env, c.req.url)
   const page = rows.slice(0, query.limit)
   const out: ProjectSummary[] = page.map((r) => {
-    const { body: _body, ...rest } = toPublicProject(r.project, r.creator, origin)
+    const { body: _body, ...rest } = toPublicProject(r.project, r.creator, media)
     return { ...rest, weekSats: msatToSats(r.weekMsat) }
   })
   c.header('cache-control', 'public, max-age=30')
