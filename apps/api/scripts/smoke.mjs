@@ -10,11 +10,20 @@ const API = 'http://localhost:8787'
 const WALLET_PORT = 8790
 const WALLET = `http://localhost:${WALLET_PORT}`
 const procs = []
-const cleanup = () => procs.forEach((p) => p.kill('SIGTERM'))
+// Each child leads its own process group, and the whole group is killed: SIGTERM to
+// `npx wrangler dev` alone leaves wrangler/workerd running on :8787 (breaks a following e2e run).
+const cleanup = () =>
+  procs.forEach((p) => {
+    try {
+      process.kill(-p.pid, 'SIGTERM')
+    } catch {
+      // already gone
+    }
+  })
 process.on('exit', cleanup)
 
 function start(cmd, args, env = {}) {
-  const p = spawn(cmd, args, { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] })
+  const p = spawn(cmd, args, { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
   const tag = `[${args[0] ?? cmd}]`
   p.stdout.on('data', (d) => process.env.VERBOSE && process.stdout.write(`${tag} ${d}`))
   p.stderr.on('data', (d) => process.env.VERBOSE && process.stderr.write(`${tag} ${d}`))
