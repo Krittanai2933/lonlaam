@@ -1,0 +1,72 @@
+import type { Creator, Invoice, Project, PublicProject, Supporter } from '@nampu/types'
+import type { CreatorRow, InvoiceRow, ProjectRow } from './db/schema'
+import { msatToSats } from './lib/util'
+
+export const coverUrl = (origin: string, key: string | null) => (key ? `${origin}/media/${key}` : null)
+
+export function toCreator(r: CreatorRow): Creator {
+  return {
+    id: r.id,
+    handle: r.handle,
+    displayName: r.displayName,
+    lightningAddress: r.lightningAddress,
+    npub: r.npub,
+    logins: { nostr: r.nostrPubkey !== null, lnurl: r.lnurlAuthKey !== null },
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }
+}
+
+/** Projects only exist for onboarded creators, so handle/displayName are set in practice. */
+export type ProjectCreator = Pick<CreatorRow, 'handle' | 'displayName' | 'npub'>
+
+export function toProject(r: ProjectRow, creator: ProjectCreator, origin: string): Project {
+  return {
+    id: r.id,
+    slug: r.slug,
+    title: r.title,
+    summary: r.summary,
+    body: r.body,
+    coverUrl: coverUrl(origin, r.coverKey),
+    category: r.category,
+    goalSats: r.goalSats,
+    milestones: r.milestones,
+    endsAt: r.endsAt,
+    raisedSats: msatToSats(r.raisedMsat),
+    supporterCount: r.supporterCount,
+    status: r.status,
+    creator: { handle: creator.handle ?? '', displayName: creator.displayName ?? '', npub: creator.npub },
+    publishedAt: r.publishedAt,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }
+}
+
+export function toPublicProject(r: ProjectRow, creator: ProjectCreator, origin: string): PublicProject {
+  const { updatedAt: _u, status, ...rest } = toProject(r, creator, origin)
+  if (status === 'draft') throw new Error('draft projects are not public')
+  return { ...rest, status }
+}
+
+export function toInvoice(r: InvoiceRow): Invoice {
+  return {
+    id: r.id,
+    projectId: r.projectId,
+    amountSats: msatToSats(r.amountMsat),
+    bolt11: r.bolt11,
+    status: r.status,
+    createdAt: r.createdAt,
+    expiresAt: r.expiresAt,
+    paidAt: r.paidAt,
+  }
+}
+
+export function toSupporter(r: Pick<InvoiceRow, 'id' | 'supporterName' | 'comment' | 'amountMsat' | 'paidAt'>): Supporter {
+  return {
+    invoiceId: r.id,
+    name: r.supporterName,
+    comment: r.comment,
+    amountSats: msatToSats(r.amountMsat),
+    paidAt: r.paidAt ?? 0,
+  }
+}

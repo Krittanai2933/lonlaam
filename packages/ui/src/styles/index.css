@@ -1,0 +1,6 @@
+/* Import after tailwindcss:  @import "tailwindcss"; @import "@nampu/ui/styles.css"; */
+@import './theme.css';
+@import './components.css';
+
+/* Let Tailwind see the utilities used inside the UI components. */
+@source '../';

@@ -1,0 +1,166 @@
+/*
+ * Lonlaam design tokens — Classical design system + deep-sea overrides (Foundations).
+ *
+ * Palette: Abyssal Black bg, Bioluminescent Cyan accent (dark) / Electric Blue (light,
+ * cyan is unreadable on a light bg), Predator Coral for the main CTA (`btn-cta`, solid) and
+ * errors, Electric Blue as the start of the progress/chart gradient.
+ *
+ * Tailwind v4: every token lives in @theme, so it is both a CSS variable with the
+ * DS name (--color-bg, --color-accent-700, …) and a utility (bg-bg, text-accent-700,
+ * border-divider, …). Dark mode redefines the same variables under
+ * [data-theme=dark]; ramps are inverted so one set of classes works in both themes.
+ *
+ * Usage (apps/web):  @import "tailwindcss"; @import "@nampu/ui/styles.css";
+ */
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+@theme {
+  /* Drop Tailwind's default palette: only DS colors exist. */
+  --color-*: initial;
+  --color-white: #fff;
+  --color-black: #000;
+
+  /* Roles */
+  --color-bg: #f4f8fa;
+  --color-surface: #e9f0f4;
+  --color-text: #0b0f19;
+  --color-fg: #0b0f19; /* alias → text-fg */
+  --color-accent: #0077b6;
+  --color-divider: rgba(11, 15, 25, 0.14);
+  --color-success: #00806e;
+  --color-danger: #d92f40;
+  --color-coral: #d6283a; /* coral text/outline on light bg */
+  --color-cta: #ff4757; /* solid main CTA (btn-cta) */
+  --color-cta-fg: #0b0f19;
+  --color-blue: #0077b6; /* progress/chart gradient start */
+
+  /* Neutral ramp */
+  --color-neutral-100: #eef3f6;
+  --color-neutral-200: #e1e9ee;
+  --color-neutral-300: #cbd6de;
+  --color-neutral-400: #a9b7c3;
+  --color-neutral-500: #7d8c9b;
+  --color-neutral-600: #5a6878;
+  --color-neutral-700: #3e4a59;
+  --color-neutral-800: #232c39;
+  --color-neutral-900: #0b0f19;
+
+  /* Accent ramp (Electric Blue in light, Bioluminescent Cyan in dark) */
+  --color-accent-100: #e3f2fb;
+  --color-accent-200: #bfe0f3;
+  --color-accent-300: #8cc7e8;
+  --color-accent-400: #3f9fd3;
+  --color-accent-500: #0077b6;
+  --color-accent-600: #00659b;
+  --color-accent-700: #005482;
+  --color-accent-800: #003f62;
+  --color-accent-900: #002a42;
+
+  /* Type: Cormorant Garamond (Latin) + Noto Serif Thai for headings, Sarabun for body */
+  --font-heading: 'Cormorant Garamond', 'Noto Serif Thai', serif;
+  --font-body: 'Sarabun', system-ui, sans-serif;
+  --font-mono: ui-monospace, Menlo, monospace;
+  /* CTA label: Open Sans condensed (wdth 80); Thai falls back to Sarabun */
+  --font-cta: 'Open Sans', 'Sarabun', sans-serif;
+
+  /* Type scale (Foundations §2) — Thai needs taller leading than Latin */
+  --text-display: 40px;
+  --text-display--line-height: 1.15;
+  --text-h1: 30px;
+  --text-h1--line-height: 1.25;
+  --text-h2: 22px;
+  --text-h2--line-height: 1.3;
+  --text-h3: 18px;
+  --text-h3--line-height: 1.35;
+  --text-body: 16px;
+  --text-body--line-height: 1.65;
+  --text-sm: 14px;
+  --text-sm--line-height: 1.55;
+  --text-xs: 12px;
+  --text-xs--line-height: 1.5;
+  --text-figure: 28px;
+  --text-figure--line-height: 1.1;
+
+  /* DS spacing scale (density ×1.15) — use as p-s3, gap-s2, … */
+  --spacing-s1: 4.6px;
+  --spacing-s2: 9.2px;
+  --spacing-s3: 13.8px;
+  --spacing-s4: 18.4px;
+  --spacing-s6: 27.6px;
+  --spacing-s8: 36.8px;
+
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 7px;
+  --radius-xl: 12px;
+
+  --shadow-sm: 0 1px 2px rgba(11, 15, 25, 0.08);
+  --shadow-md: 0 4px 14px rgba(11, 15, 25, 0.1);
+  --shadow-lg: 0 14px 36px rgba(11, 15, 25, 0.16);
+  /* Bioluminescent glow on accent lines (progress); none in light mode. */
+  --shadow-glow: none;
+
+  --animate-np-spin: np-spin 0.8s linear infinite;
+  --animate-np-pulse: np-pulse 1.4s ease-in-out infinite;
+
+  @keyframes np-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @keyframes np-pulse {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.35;
+      transform: scale(0.7);
+    }
+  }
+}
+
+/* Dark theme — same variable names, inverted ramps (Foundations §1). */
+[data-theme='dark'] {
+  --color-bg: #0b0f19;
+  --color-surface: #111827;
+  --color-text: #e6f1f5;
+  --color-fg: #e6f1f5;
+  --color-accent: #00f5d4;
+  --color-divider: rgba(230, 241, 245, 0.13);
+  --color-success: #00f5d4;
+  --color-danger: #ff4757;
+  --color-coral: #ff4757;
+  --color-cta: #ff4757;
+  --color-cta-fg: #0b0f19;
+  --color-blue: #0077b6;
+
+  --color-neutral-100: #111726;
+  --color-neutral-200: #182033;
+  --color-neutral-300: #222c42;
+  --color-neutral-400: #33405a;
+  --color-neutral-500: #4d5b78;
+  --color-neutral-600: #7a88a3;
+  --color-neutral-700: #a3afc4;
+  --color-neutral-800: #cbd4e1;
+  --color-neutral-900: #e6f1f5;
+
+  --color-accent-100: #062a2a;
+  --color-accent-200: #0a3f3c;
+  --color-accent-300: #0e5c56;
+  --color-accent-400: #11857a;
+  --color-accent-500: #00c2a8;
+  --color-accent-600: #00f5d4;
+  --color-accent-700: #5ffbe6;
+  --color-accent-800: #a6fdf1;
+  --color-accent-900: #d9fef9;
+
+  --shadow-sm: 0 0 0 1px rgba(0, 245, 212, 0.05), 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 0 0 1px rgba(0, 245, 212, 0.07), 0 6px 20px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 0 0 1px rgba(0, 245, 212, 0.09), 0 16px 40px rgba(0, 0, 0, 0.7);
+  --shadow-glow: 0 0 8px rgba(0, 245, 212, 0.55);
+
+  color-scheme: dark;
+}

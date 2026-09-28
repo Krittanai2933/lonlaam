@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <style>
+    .bg { fill: #f4f8fa } .s { stroke: #0077b6 } .f { fill: #0077b6 }
+    @media (prefers-color-scheme: dark) { .bg { fill: #0b0f19 } .s { stroke: #00f5d4 } .f { fill: #00f5d4 } }
+  </style>
+  <rect class="bg" width="32" height="32" rx="7"/>
+  <g class="s" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <!-- bowl -->
+    <path d="M7 15.5h18l-1.7 7.4a3 3 0 0 1-2.9 2.3h-8.8a3 3 0 0 1-2.9-2.3z"/>
+    <!-- crest rising over the rim -->
+    <path d="M8.2 15.5c.9-3 2.5-4.6 4.2-4.6 1.8 0 2.1 1.8 3.6 1.8s2.3-3.4 4.3-3.4c1.9 0 3.1 2.4 3.9 6.2"/>
+    <!-- spill over the left rim -->
+    <path d="M7 15.5c-1.4.1-2 1-2 2.4v.9"/>
+  </g>
+  <!-- falling drops -->
+  <circle class="f" cx="5" cy="22" r="1.2"/>
+  <circle class="f" cx="27" cy="19.6" r="1"/>
+</svg>

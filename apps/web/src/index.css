@@ -1,0 +1,12 @@
+@import 'tailwindcss';
+@import '@nampu/ui/styles.css';
+@source '../../../packages/ui/src';
+
+/* Story prose: justified columns, DS headings, matted images (Classical "Direction"). */
+.np-prose > * { margin: 0 0 12px; }
+.np-prose p { text-align: justify; }
+.np-prose h2 { font-size: 22px; margin-top: 18px; }
+.np-prose h3 { font-size: 19px; margin-top: 14px; }
+.np-prose img { max-width: 100%; border: 6px solid var(--color-surface); outline: 1px solid var(--color-divider); filter: sepia(0.22) saturate(0.82) contrast(1.05); break-inside: avoid; }
+.np-prose blockquote { border-left: 1px solid var(--color-accent); padding-left: 12px; color: var(--color-neutral-700); font-style: italic; }
+.np-prose ul, .np-prose ol { padding-left: 20px; }

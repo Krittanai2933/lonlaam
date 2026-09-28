@@ -1,0 +1,414 @@
+import type { GetPublicProjectResponse, ListSupportersResponse, ProjectStats, PublicProject, Supporter } from '@nampu/types'
+import { PUBLIC_PAGE } from '@nampu/types'
+import { Avatar, Brand, Button, Icon, Plate, Progress, Tag, Tabs } from '@nampu/ui'
+import { type InfiniteData, type QueryClient, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router'
+import { ContributeFlow } from '../components/contribute/Contribute'
+import { Markdown } from '../components/Markdown'
+import { PublicNav } from '../components/PublicChrome'
+import { projectUrl, ShareButtons } from '../components/share'
+import { api, ApiError } from '../lib/api'
+import { FullPageSpinner } from '../lib/auth'
+import { ago, daysLeft, fmt } from '../lib/format'
+import { useIsDesktop, useNow, useProjectSocket } from '../lib/hooks'
+import { useI18n } from '../lib/i18n'
+import { useTrending } from './Discover'
+
+type Tab = 'story' | 'supporters'
+
+export default function ProjectPage() {
+  const { slug } = useParams() as { slug: string }
+  const desktop = useIsDesktop()
+  const qc = useQueryClient()
+  const project = useQuery({ queryKey: ['public', slug], queryFn: () => api.publicProject(slug), retry: (n, e) => !(e instanceof ApiError && e.status === 404) && n < 2 })
+  const [contributing, setContributing] = useState(false)
+
+  // Live totals + activity while the page is open, applied locally: a refetch here would
+  // cost every open viewer two requests per payment.
+  useProjectSocket(project.data ? slug : null, (m) => {
+    if (m.type === 'payment') applyPayment(qc, slug, m.supporter, m.stats)
+  })
+
+  if (project.isPending) return <FullPageSpinner />
+  if (project.isError) return <NotFound />
+  const p = project.data
+  const View = desktop ? DesktopProject : MobileProject
+  return (
+    <>
+      <View project={p} onContribute={() => setContributing(true)} />
+      <ContributeFlow project={p} open={contributing} onClose={() => setContributing(false)} desktop={desktop} />
+    </>
+  )
+}
+
+function NotFound() {
+  const { t } = useI18n()
+  return (
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">
+      <Brand size="page" />
+      <p className="m-0 text-neutral-700">{t.projectNotFound}</p>
+      <Link to="/" className="btn btn-secondary">
+        {t.backHome}
+      </Link>
+    </div>
+  )
+}
+
+// ─── shared ───────────────────────────────────────────────────────────────────
+
+const isOpen = (p: PublicProject) => p.status === 'active' && (!p.endsAt || p.endsAt > Date.now())
+const pctOf = (p: PublicProject) => (p.goalSats ? Math.round((p.raisedSats / p.goalSats) * 100) : null)
+
+function useIsTrending(p: PublicProject) {
+  const tr = useTrending()
+  return !!tr.data?.some((x) => x.id === p.id)
+}
+
+// Both lists start from the data embedded in GET /api/p/:slug and are then kept current by
+// the WebSocket, so they never refetch on their own; only "load more" hits the network.
+const embedded = (qc: QueryClient, slug: string) => qc.getQueryData<GetPublicProjectResponse>(['public', slug])
+
+function useActivity(slug: string) {
+  const qc = useQueryClient()
+  return useInfiniteQuery({
+    queryKey: ['public-supporters', slug],
+    queryFn: ({ pageParam }) => api.publicSupporters(slug, pageParam, PUBLIC_PAGE.supporters),
+    initialPageParam: undefined as string | undefined,
+    initialData: () => {
+      const p = embedded(qc, slug)
+      return p && { pages: [p.supporters], pageParams: [undefined] }
+    },
+    getNextPageParam: (l) => l.nextCursor ?? undefined,
+    staleTime: Infinity,
+  })
+}
+
+function useLeaders(slug: string) {
+  const qc = useQueryClient()
+  return useQuery({
+    queryKey: ['leaderboard', slug],
+    queryFn: () => api.leaderboard(slug, PUBLIC_PAGE.leaders).then((r) => r.leaders),
+    initialData: () => embedded(qc, slug)?.leaders,
+    staleTime: Infinity,
+  })
+}
+
+function applyPayment(qc: QueryClient, slug: string, s: Supporter, stats: ProjectStats) {
+  // The embedded copies are updated too: a list that is not mounted yet (e.g. the supporters
+  // tab on mobile) is seeded from them later.
+  qc.setQueryData<GetPublicProjectResponse>(['public', slug], (p) =>
+    p && { ...p, ...stats, supporters: withSupporter(p.supporters, s), leaders: withLeader(p.leaders, s) },
+  )
+  qc.setQueryData<InfiniteData<ListSupportersResponse, string | undefined>>(['public-supporters', slug], (d) => {
+    const first = d?.pages[0]
+    return d && first && { ...d, pages: [withSupporter(first, s), ...d.pages.slice(1)] }
+  })
+  qc.setQueryData<Supporter[]>(['leaderboard', slug], (l) => l && withLeader(l, s))
+}
+
+const withSupporter = (page: ListSupportersResponse, s: Supporter): ListSupportersResponse =>
+  page.supporters.some((x) => x.invoiceId === s.invoiceId) ? page : { ...page, supporters: [s, ...page.supporters] }
+
+const withLeader = (leaders: Supporter[], s: Supporter) =>
+  leaders.some((x) => x.invoiceId === s.invoiceId)
+    ? leaders
+    : [...leaders, s].sort((a, b) => b.amountSats - a.amountSats || b.paidAt - a.paidAt).slice(0, PUBLIC_PAGE.leaders)
+
+function Tags({ p }: { p: PublicProject }) {
+  const { t } = useI18n()
+  const trending = useIsTrending(p)
+  if (!p.category && !trending) return null
+  return (
+    <div className="flex gap-2">
+      {p.category && <Tag tone="accent">{t.cats[p.category]}</Tag>}
+      {trending && <Tag tone="outline">{t.trending}</Tag>}
+    </div>
+  )
+}
+
+function ContributeButton({ p, onClick, className }: { p: PublicProject; onClick: () => void; className?: string }) {
+  const { t } = useI18n()
+  const open = isOpen(p)
+  return (
+    <Button variant="cta" icon={open ? 'zap' : undefined} className={className} disabled={!open} onClick={onClick}>
+      {open ? t.contribute : t.projectClosed}
+    </Button>
+  )
+}
+
+function milestoneTicks(p: PublicProject) {
+  if (!p.goalSats) return undefined
+  return p.milestones.filter((m) => m.sats < p.goalSats!).map((m) => ({ at: m.sats / p.goalSats!, reached: p.raisedSats >= m.sats }))
+}
+
+function MilestoneList({ p }: { p: PublicProject }) {
+  const { t } = useI18n()
+  if (!p.milestones.length) return null
+  return (
+    <>
+      <h3 className="mb-2.5 text-[20px]">{t.milestones}</h3>
+      {p.milestones.map((m, i) => {
+        const done = p.raisedSats >= m.sats
+        return (
+          <div key={i} className="grid grid-cols-[22px_1fr_auto] items-start gap-2.5 border-t border-divider py-2.5">
+            <span className="mt-0.5 grid size-[18px] place-items-center rounded-full border text-accent-700" style={{ borderColor: done ? 'var(--color-accent)' : 'var(--color-neutral-400)' }}>
+              {done && <Icon name="check" size={12} />}
+            </span>
+            <span className="text-sm">{m.label}</span>
+            <span className="tnum text-[13px] text-neutral-700">{fmt(m.sats)}</span>
+          </div>
+        )
+      })}
+    </>
+  )
+}
+
+function Leaderboard({ slug, compact }: { slug: string; compact?: boolean }) {
+  const { t } = useI18n()
+  const leaders = useLeaders(slug)
+  if (!leaders.data?.length) return null
+  return (
+    <div>
+      <h6 className="text-neutral-700">{t.leaderboard}</h6>
+      {leaders.data.map((l, i) =>
+        compact ? (
+          <div key={l.invoiceId} className="grid grid-cols-[26px_1fr_auto] gap-2.5 border-b border-divider py-2 text-sm">
+            <span className="tnum font-heading text-lg text-accent-700">{i + 1}</span>
+            <span className="truncate">{l.name ?? t.anonymous}</span>
+            <span className="tnum font-medium">{fmt(l.amountSats)}</span>
+          </div>
+        ) : (
+          <div key={l.invoiceId} className="grid grid-cols-[24px_30px_1fr_auto] items-center gap-2.5 border-b border-divider py-[9px]">
+            <span className="tnum font-heading text-lg text-accent-700">{i + 1}</span>
+            <Avatar name={l.name ?? t.anonymous} size={28} />
+            <span className="truncate text-sm">{l.name ?? t.anonymous}</span>
+            <span className="tnum text-sm font-medium">{fmt(l.amountSats)}</span>
+          </div>
+        ),
+      )}
+    </div>
+  )
+}
+
+function ActivityRow({ s, compact, now }: { s: Supporter; compact?: boolean; now: number }) {
+  const { t, f } = useI18n()
+  const who = s.name ?? t.anonymous
+  return (
+    <div className="flex gap-2.5 border-b border-divider py-2 text-sm">
+      <span className="mt-[3px] text-accent">
+        <Icon name="zap" />
+      </span>
+      {compact ? (
+        <span className="flex-1">
+          {who} <span className="tnum text-accent-700">+{fmt(s.amountSats)}</span>
+        </span>
+      ) : (
+        <div className="flex-1">
+          <div>
+            <b className="font-semibold">{who}</b> <span className="tnum">{f(t.sent, { amount: fmt(s.amountSats) })}</span>
+          </div>
+          {s.comment && <div className="text-neutral-700 italic">“{s.comment}”</div>}
+        </div>
+      )}
+      <span className="text-xs whitespace-nowrap text-neutral-600">{ago(s.paidAt, t.ago, now)}</span>
+    </div>
+  )
+}
+
+function Activity({ slug, compact, limit }: { slug: string; compact?: boolean; limit?: number }) {
+  const { t } = useI18n()
+  const now = useNow(60_000)
+  const q = useActivity(slug)
+  const rows = (q.data?.pages.flatMap((p) => p.supporters) ?? []).slice(0, limit)
+  return (
+    <div>
+      <h6 className="mt-0 text-neutral-700">{t.activity}</h6>
+      {rows.map((s) => (
+        <ActivityRow key={s.invoiceId} s={s} compact={compact} now={now} />
+      ))}
+      {!q.isPending && rows.length === 0 && <p className="py-3 text-sm text-neutral-600">{t.noActivity}</p>}
+      {!limit && q.hasNextPage && (
+        <Button variant="ghost" className="mt-2" loading={q.isFetchingNextPage} onClick={() => void q.fetchNextPage()}>
+          {t.loadMore}
+        </Button>
+      )}
+    </div>
+  )
+}
+
+async function shareNative(p: PublicProject) {
+  const url = projectUrl(p.slug)
+  if (navigator.share) {
+    try {
+      return await navigator.share({ title: p.title, url })
+    } catch {
+      // cancelled
+    }
+  }
+  await navigator.clipboard.writeText(url)
+}
+
+// ─── 2a · Mobile ──────────────────────────────────────────────────────────────
+
+function MobileProject({ project: p, onContribute }: { project: PublicProject; onContribute: () => void }) {
+  const { t } = useI18n()
+  const navigate = useNavigate()
+  const [tab, setTab] = useState<Tab>('story')
+  const pct = pctOf(p)
+  return (
+    <div className="min-h-dvh">
+      <div className="flex items-center justify-between px-3 py-1">
+        <Button variant="ghost" plain iconOnly icon="chevL" aria-label={t.back} onClick={() => (history.length > 1 ? navigate(-1) : navigate('/'))} />
+        <Button variant="ghost" plain iconOnly icon="share" aria-label={t.share} onClick={() => void shareNative(p)} />
+      </div>
+      <div className="px-5 pb-[100px]">
+        <Plate src={p.coverUrl} />
+        <div className="mt-4 mb-2">
+          <Tags p={p} />
+        </div>
+        <h1 className="m-0 mb-1.5 text-[28px] leading-[1.25] font-medium">{p.title}</h1>
+        <div className="flex items-center gap-2 text-[13px] text-neutral-700">
+          <Avatar name={p.creator.displayName} size={24} accent />
+          {`${t.by} ${p.creator.displayName}`}
+        </div>
+        <div className="mt-5 mb-1 flex items-baseline gap-1.5">
+          <span className="tnum text-[30px] leading-[1.1] font-medium">{fmt(p.raisedSats)}</span>
+          <span className="text-sm text-neutral-600">sats</span>
+        </div>
+        {p.goalSats && <div className="tnum mb-2.5 text-[13px] text-neutral-700">{`${t.ofGoalSats} ${fmt(p.goalSats)} sats`}</div>}
+        <Progress value={p.goalSats ? p.raisedSats / p.goalSats : 0} ticks={milestoneTicks(p)} />
+        <div className="tnum mt-4 grid grid-cols-3 border-y border-divider">
+          <Stat value={pct === null ? '—' : `${pct}%`} label={t.funded} />
+          <Stat value={fmt(p.supporterCount)} label={t.backers} bordered />
+          <Stat value={p.endsAt ? String(daysLeft(p.endsAt)) : '—'} label={t.daysLeft} bordered />
+        </div>
+        <Tabs<Tab>
+          className="mt-[18px]"
+          aria-label={p.title}
+          value={tab}
+          onChange={setTab}
+          items={[
+            { value: 'story', label: t.story },
+            { value: 'supporters', label: t.supporters },
+          ]}
+        />
+        {tab === 'story' ? (
+          <div className="pt-4">
+            <Markdown source={p.body} />
+            <div className="mt-5">
+              <MilestoneList p={p} />
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-[22px] pt-3.5">
+            <Leaderboard slug={p.slug} />
+            <Activity slug={p.slug} />
+          </div>
+        )}
+      </div>
+      <div className="fixed inset-x-0 bottom-0 z-20 flex gap-2.5 border-t border-divider bg-bg px-5 pt-3 pb-[26px]">
+        <Button variant="secondary" iconOnly icon="share" className="size-12" aria-label={t.share} onClick={() => void shareNative(p)} />
+        <ContributeButton p={p} onClick={onContribute} className="h-12 flex-1 text-base" />
+      </div>
+    </div>
+  )
+}
+
+function Stat({ value, label, bordered }: { value: string; label: string; bordered?: boolean }) {
+  return (
+    <div className={bordered ? 'border-l border-divider px-3 py-2.5' : 'py-2.5'}>
+      <div className="text-lg font-medium">{value}</div>
+      <div className="text-xs text-neutral-600">{label}</div>
+    </div>
+  )
+}
+
+// ─── 2c · Desktop ─────────────────────────────────────────────────────────────
+
+function DesktopProject({ project: p, onContribute }: { project: PublicProject; onContribute: () => void }) {
+  const { t } = useI18n()
+  const [tab, setTab] = useState<Tab>('story')
+  const pct = pctOf(p)
+  return (
+    <div className="mx-auto max-w-[1280px]">
+      <PublicNav loginVariant="secondary" />
+      <div className="grid grid-cols-[minmax(0,1fr)_380px] gap-12 px-10 pt-8">
+        <div>
+          <div className="mb-2.5">
+            <Tags p={p} />
+          </div>
+          <h1 className="m-0 mb-2 text-[40px] leading-[1.2] font-normal">{p.title}</h1>
+          {p.summary && <p className="m-0 mb-5 max-w-[640px] text-[17px] text-neutral-700">{p.summary}</p>}
+          <Plate src={p.coverUrl} ratio="16/9" />
+        </div>
+        <aside className="sticky top-5 mt-10 self-start rounded-md border border-divider p-6">
+          <div className="flex items-baseline gap-1.5">
+            <span className="tnum text-[34px] leading-[1.1] font-medium">{fmt(p.raisedSats)}</span>
+            <span className="text-neutral-600">sats</span>
+          </div>
+          <div className="tnum mt-0.5 mb-3 text-[13px] text-neutral-700">
+            {p.goalSats ? `${t.ofGoalSats} ${fmt(p.goalSats)} sats · ${pct}%` : `${t.by} ${p.creator.displayName}`}
+          </div>
+          <Progress value={p.goalSats ? p.raisedSats / p.goalSats : 0} ticks={milestoneTicks(p)} />
+          <div className="tnum my-4 grid grid-cols-2 border-y border-divider">
+            <div className="py-2.5">
+              <div className="text-[20px] font-medium">{fmt(p.supporterCount)}</div>
+              <div className="text-xs text-neutral-600">{t.backers}</div>
+            </div>
+            <div className="border-l border-divider px-3.5 py-2.5">
+              <div className="text-[20px] font-medium">{p.endsAt ? daysLeft(p.endsAt) : '—'}</div>
+              <div className="text-xs text-neutral-600">{t.daysLeft}</div>
+            </div>
+          </div>
+          <ContributeButton p={p} onClick={onContribute} className="h-12 w-full text-base" />
+          <ShareButtons project={p} className="mt-2.5" />
+          <div className="mt-5 flex items-center gap-1.5 text-xs text-neutral-600">
+            <Icon name="eyeOff" />
+            {t.anonNote}
+          </div>
+        </aside>
+      </div>
+      <div className="grid grid-cols-[minmax(0,1fr)_380px] gap-12 px-10 pt-7 pb-10">
+        <div>
+          <Tabs<Tab>
+            className="mb-5"
+            gap={26}
+            size={15}
+            aria-label={p.title}
+            value={tab}
+            onChange={setTab}
+            items={[
+              { value: 'story', label: t.story },
+              { value: 'supporters', label: `${t.supporters} (${fmt(p.supporterCount)})` },
+            ]}
+          />
+          {tab === 'story' ? (
+            <>
+              <Markdown source={p.body} style={{ columns: p.body.length > 600 ? 2 : 1, columnGap: 32 }} />
+              {p.milestones.length > 0 && (
+                <>
+                  <h3 className="mt-[18px]">{t.milestones}</h3>
+                  <div className="grid grid-cols-3 gap-4">
+                    {p.milestones.map((m, i) => (
+                      <div key={i} className="border-t-2 pt-2.5" style={{ borderColor: p.raisedSats >= m.sats ? 'var(--color-accent)' : 'var(--color-neutral-400)' }}>
+                        <div className="tnum text-[13px] text-accent-700">{fmt(m.sats)} sats</div>
+                        <div className="text-sm">{m.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          ) : (
+            <Activity slug={p.slug} />
+          )}
+        </div>
+        <div className="flex flex-col gap-7">
+          <Leaderboard slug={p.slug} compact />
+          <Activity slug={p.slug} compact limit={5} />
+        </div>
+      </div>
+    </div>
+  )
+}

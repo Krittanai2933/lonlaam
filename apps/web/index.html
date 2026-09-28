@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="th" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>ล้นหลาม Lonlaam</title>
+    <meta name="description" content="ระดมทุนด้วย Bitcoin Lightning ส่งตรงถึงผู้สร้าง" />
+    <meta name="theme-color" content="#f4f8fa" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b0f19" media="(prefers-color-scheme: dark)" />
+    <!-- Overflowing bowl (ล้นหลาม). SVG adapts to dark mode; PNGs for browsers/iOS without SVG icons. -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Open+Sans:wdth,wght@75..100,700&family=Noto+Serif+Thai:wght@400;500;600&family=Sarabun:wght@300;400;500;600&display=swap"
+    />
+    <script>
+      // Apply the saved theme before first paint (no flash); dark is the default.
+      var t = 'dark'
+      try {
+        if (localStorage.getItem('nampu.theme') === 'light') t = 'light'
+      } catch (e) {}
+      document.documentElement.dataset.theme = t
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
