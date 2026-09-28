@@ -19,7 +19,7 @@
   }
   body {
     margin: 0;
-    min-height: 100vh;
+    min-height: calc(100vh / var(--np-zoom));
     background: var(--color-bg);
     color: var(--color-text);
     font-family: var(--font-body);
@@ -198,3 +198,24 @@
   .dialog-body { font-size: 14px; opacity: 0.85; }
   .dialog-actions { display: flex; justify-content: flex-end; gap: var(--spacing-s2); margin-top: var(--spacing-s2); }
 }
+
+/*
+ * Large screens (1440p, 4K at 100% scaling): sizes are px throughout, so scale the whole
+ * page instead of stretching it. Media queries still see the real viewport, so the
+ * mobile/desktop switch (1024px) is unaffected; the layout width becomes viewport / zoom
+ * (3840 → 1920, 2560 → ~1700, 1920 → ~1540). Unlayered so it can't be overridden by a
+ * layer's default.
+ */
+:root { --np-zoom: 1; }
+@media (min-width: 1800px) { :root { --np-zoom: 1.25; } }
+@media (min-width: 2400px) { :root { --np-zoom: 1.5; } }
+@media (min-width: 3200px) { :root { --np-zoom: 2; } }
+html { zoom: var(--np-zoom); }
+
+/*
+ * Full-height utilities under large-screen zoom: 100vh/dvh are multiplied by `zoom`, so
+ * without this a "fits the screen" page would be zoom × the screen tall. Unlayered, so it
+ * wins over Tailwind's own .min-h-* utilities.
+ */
+.min-h-dvh { min-height: calc(100dvh / var(--np-zoom)); }
+.min-h-screen { min-height: calc(100vh / var(--np-zoom)); }
