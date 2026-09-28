@@ -1,12 +1,13 @@
 import { Hono } from 'hono'
-import { type AppEnv, publicOrigin } from '../context'
+import { type AppEnv, mediaBase, publicOrigin } from '../context'
 import { coverUrl } from '../serialize'
 import { findPublicProject } from './public'
 
 /** Non-API routes: R2 media and the SEO shell for /p/:slug. */
 export const webRoutes = new Hono<AppEnv>()
 
-  // Media keys are random and never reused, so responses are immutable.
+  // Media keys are random and never reused, so responses are immutable. With MEDIA_ORIGIN
+  // set, new URLs point at the R2 public domain; this route keeps older links working.
   .get('/media/:key{.+}', async (c) => {
     const key = c.req.param('key')
     if (!key.startsWith('covers/') && !key.startsWith('images/')) return c.notFound()
@@ -45,7 +46,7 @@ export const webRoutes = new Hono<AppEnv>()
     let tags: [attr: 'name' | 'property', key: string, value: string][]
     if (found) {
       const { project, creator } = found
-      const image = coverUrl(origin, project.coverKey)
+      const image = coverUrl(mediaBase(c.env, c.req.url), project.coverKey)
       title = `${project.title} · ${site}`
       const description = project.summary || `Support ${creator.displayName} on ${site}`
       tags = [

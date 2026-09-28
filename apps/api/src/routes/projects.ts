@@ -17,7 +17,7 @@ import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 import * as v from 'valibot'
-import { type AppEnv, publicOrigin } from '../context'
+import { type AppEnv, mediaBase } from '../context'
 import { isUniqueViolation } from '../db/errors'
 import { type ProjectRow, projects } from '../db/schema'
 import { ApiError, notFound } from '../lib/errors'
@@ -89,7 +89,7 @@ async function ownProject(c: Context<AppEnv>): Promise<ProjectRow> {
   return row
 }
 
-const respond = (c: Context<AppEnv>, row: ProjectRow) => toProject(row, c.var.creator, publicOrigin(c.env, c.req.url))
+const respond = (c: Context<AppEnv>, row: ProjectRow) => toProject(row, c.var.creator, mediaBase(c.env, c.req.url))
 
 /** Validates an image upload and streams it into R2 under `prefix/<projectId>/`. */
 async function putImage(c: Context<AppEnv>, prefix: 'covers' | 'images', projectId: string) {
@@ -246,7 +246,7 @@ export const projectRoutes = new Hono<AppEnv>()
   .post('/:id/images', writeLimit, async (c) => {
     const current = await ownProject(c)
     const key = await putImage(c, 'images', current.id)
-    return c.json({ url: coverUrl(publicOrigin(c.env, c.req.url), key)! } satisfies UploadImageResponse, 201)
+    return c.json({ url: coverUrl(mediaBase(c.env, c.req.url), key)! } satisfies UploadImageResponse, 201)
   })
 
   // ─── Analytics ──────────────────────────────────────────────────────────────

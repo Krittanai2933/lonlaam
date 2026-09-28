@@ -5,7 +5,7 @@ import { and, desc, eq, ne } from 'drizzle-orm'
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 import * as v from 'valibot'
-import { type AppEnv, type Db, lnurlOptions, publicOrigin } from '../context'
+import { type AppEnv, type Db, lnurlOptions, mediaBase } from '../context'
 import { isUniqueViolation } from '../db/errors'
 import { creators, invoices, projects } from '../db/schema'
 import { MAX_PENDING } from '../do/project-room'
@@ -76,7 +76,7 @@ export const publicRoutes = new Hono<AppEnv>()
     ])
     c.header('cache-control', 'public, max-age=10')
     return c.json({
-      ...toPublicProject(project, creator, publicOrigin(c.env, c.req.url)),
+      ...toPublicProject(project, creator, mediaBase(c.env, c.req.url)),
       supporters,
       leaders: leaders.map(toSupporter),
     } satisfies GetPublicProjectResponse)
