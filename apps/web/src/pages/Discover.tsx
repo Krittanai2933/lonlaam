@@ -4,7 +4,7 @@ import { Button, Chip, cx, Icon, Menu, Plate, Progress, ProjectCard, ProjectRow,
 import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useRef, useState } from 'react'
 import { Link } from 'react-router'
-import { HowItWorks, MobileTabBar, PublicNav } from '../components/PublicChrome'
+import { HowItWorks, MobileTabBar, PublicNav, SupportLonlaam } from '../components/PublicChrome'
 import { api } from '../lib/api'
 import { daysLeft, fmt, short } from '../lib/format'
 import { useIsDesktop } from '../lib/hooks'
@@ -149,6 +149,7 @@ function MobileDiscover({ cat, setCat, search, setSearch, q, list }: ViewProps) 
           <LoadMore list={list} />
         </div>
         <HowItWorks desktop={false} />
+        <SupportLonlaam desktop={false} />
       </div>
       <MobileTabBar
         onSearch={() => {
@@ -267,6 +268,7 @@ function DesktopDiscover({ cat, setCat, sort, setSort, search, setSearch, q, lis
         <LoadMore list={list} />
       </div>
       <HowItWorks desktop />
+      <SupportLonlaam desktop />
     </div>
   )
 }

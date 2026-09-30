@@ -172,6 +172,10 @@ const th = {
   how2b: 'เลือกจำนวน sats แล้วจ่ายด้วยกระเป๋า Lightning ใดก็ได้ ไม่ต้องสมัครสมาชิก',
   how3t: 'sats เข้ากระเป๋าผู้สร้างทันที',
   how3b: 'invoice ออกโดยกระเป๋าของผู้สร้างเอง ล้นหลามไม่ถือเงินของใคร เราแค่ยืนยันและแสดงยอดแบบสด',
+  // support the platform (added — no design)
+  supportTitle: 'สนับสนุนล้นหลาม',
+  supportBody: 'ล้นหลามไม่เก็บค่าธรรมเนียม ถ้าอยากช่วยค่าดูแลและพัฒนาต่อ ส่ง sats มาที่ Lightning address นี้ได้เลย จำนวนเท่าไหร่ก็ได้',
+  copyAddress: 'คัดลอก address',
 
   // project page (2a/2c)
   by: 'โดย',
@@ -392,6 +396,9 @@ const en: Dict = {
   how2b: 'Pick an amount in sats and pay from any Lightning wallet. No sign-up needed.',
   how3t: 'Sats land with the creator instantly',
   how3b: 'Invoices are issued by the creator’s own wallet. Lonlaam never holds funds; we only confirm payments and show totals live.',
+  supportTitle: 'Support Lonlaam',
+  supportBody: 'Lonlaam charges no fees. To help keep it running and improving, send any amount of sats to this Lightning address.',
+  copyAddress: 'Copy address',
 
   by: 'by',
   ofGoalSats: 'of',

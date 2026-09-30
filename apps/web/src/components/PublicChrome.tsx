@@ -1,4 +1,4 @@
-import { Brand, Button, cx, Icon, type IconName } from '@nampu/ui'
+import { Brand, Button, CopyButton, cx, Icon, QRCode, type IconName } from '@nampu/ui'
 import type { ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { useAuth } from '../lib/auth'
@@ -84,6 +84,40 @@ export function HowItWorks({ desktop }: { desktop: boolean }) {
           </li>
         ))}
       </ol>
+    </section>
+  )
+}
+
+/** Lightning Address that receives donations to the platform itself. */
+export const SUPPORT_ADDRESS = 'krittanai@peanjaroen.com'
+
+/** "Support Lonlaam" (added — no design): QR + copy for the platform's own Lightning Address. */
+export function SupportLonlaam({ desktop }: { desktop: boolean }) {
+  const { t } = useI18n()
+  const actions = (
+    <div className={cx('flex gap-2', !desktop && 'w-full')}>
+      <CopyButton text={SUPPORT_ADDRESS} label={t.copyAddress} copiedLabel={t.copied} className={cx('h-11', !desktop && 'flex-1')} />
+      <a className={cx('btn btn-primary h-11', !desktop && 'flex-1')} href={`lightning:${SUPPORT_ADDRESS}`}>
+        <Icon name="wallet" />
+        {t.openWallet}
+      </a>
+    </div>
+  )
+  return (
+    <section id="support" className={cx('scroll-mt-4 border-t border-divider', desktop ? 'grid grid-cols-[minmax(0,1fr)_auto] items-center gap-10 px-10 pt-9 pb-12' : 'mt-2 pt-6')}>
+      <div className={cx('flex flex-col gap-3', !desktop && 'items-center text-center')}>
+        <h2 className={cx('m-0 flex items-center gap-2', desktop ? 'text-[30px] font-medium' : 'text-[24px] font-medium')}>
+          <Icon name="heart" className="text-accent-700" />
+          {t.supportTitle}
+        </h2>
+        <p className="m-0 max-w-[560px] text-neutral-700">{t.supportBody}</p>
+        <div className="tnum font-heading text-[19px] font-semibold break-all">{SUPPORT_ADDRESS}</div>
+        {desktop && actions}
+      </div>
+      <div className={cx('flex flex-col items-center gap-3', !desktop && 'mt-4')}>
+        <QRCode value={`lightning:${SUPPORT_ADDRESS}`} size={desktop ? 200 : 220} logo label={`Lightning address QR: ${SUPPORT_ADDRESS}`} />
+        {!desktop && actions}
+      </div>
     </section>
   )
 }
