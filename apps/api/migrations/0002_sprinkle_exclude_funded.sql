@@ -1,0 +1,1 @@
+ALTER TABLE `sprinkles` ADD `exclude_funded` integer DEFAULT false NOT NULL;

@@ -437,12 +437,16 @@ export interface SprinkleConfigResponse {
   enabled: boolean
   /** Projects a sprinkle can currently pay (caps projectCount). */
   eligibleProjects: number
+  /** Of those, the ones that haven't reached their goal (or have none): the cap with excludeFunded. */
+  eligibleUnfunded: number
 }
 
 /** POST /api/sprinkles */
 export interface CreateSprinkleRequest {
   amountSats: number
   projectCount: number
+  /** Skip projects that already reached their goal (projects without a goal stay in). Default false. */
+  excludeFunded?: boolean
   supporterName?: string
   comment?: string
 }
@@ -463,6 +467,7 @@ export interface Sprinkle {
   amountSats: number
   projectCount: number
   perProjectSats: number
+  excludeFunded: boolean
   bolt11: string
   status: SprinkleStatus
   createdAt: number

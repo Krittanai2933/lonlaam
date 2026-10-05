@@ -15,6 +15,13 @@
       "when": 1791183451840,
       "tag": "0001_sprinkles",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791198603038,
+      "tag": "0002_sprinkle_exclude_funded",
+      "breakpoints": true
     }
   ]
 }
