@@ -1,5 +1,5 @@
 import type { Project } from '@nampu/types'
-import { call, expect, LN_NO_LUD21, LN_OK, nostrLogin, signInAs, test, uid, wallet } from '../fixtures'
+import { call, expect, LN_NO_LUD21, LN_OK, nostrLogin, seedCreator, seedProject, signInAs, test, uid, wallet } from '../fixtures'
 
 // 6a (wizard) → 5a (dashboard), starting from a brand-new account.
 
@@ -64,4 +64,17 @@ test('onboard, build a project in the wizard, publish, and see a payment arrive 
   await wallet.payProject(slug, 2100, 'แก้ว', 'สู้ๆ ครับ')
   await expect(page.getByText('+2,100')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByText('สู้ๆ ครับ')).toBeVisible()
+})
+
+test('editor: preview link opens the owner-only page of a draft', async ({ page, context }) => {
+  const c = await seedCreator()
+  const p = await seedProject(c.token, { publish: false })
+  await signInAs(page, c.token)
+  await page.goto(`/projects/${p.id}/edit?step=0`)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+
+  const [tab] = await Promise.all([context.waitForEvent('page'), page.getByRole('link', { name: 'ดูตัวอย่าง' }).click()])
+  await expect(tab).toHaveURL(new RegExp(`/p/${p.slug}\\?preview=${p.id}$`))
+  await expect(tab.getByText('ตัวอย่างหน้าโปรเจกต์ เห็นเฉพาะคุณ')).toBeVisible()
+  await expect(tab.getByRole('button', { name: 'ยังรับการสนับสนุนในตัวอย่างไม่ได้' }).first()).toBeDisabled()
 })

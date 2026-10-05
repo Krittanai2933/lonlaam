@@ -97,6 +97,8 @@ const th = {
   saving: 'กำลังบันทึก…', // (added)
   unsaved: 'ยังไม่ได้บันทึก', // (added)
   preview: 'ดูตัวอย่าง',
+  previewBanner: 'ตัวอย่างหน้าโปรเจกต์ เห็นเฉพาะคุณ',
+  previewNoPay: 'ยังรับการสนับสนุนในตัวอย่างไม่ได้',
   saveChanges: 'บันทึกการเปลี่ยนแปลง',
   editProject: 'แก้ไขโปรเจกต์',
   createProject: 'สร้างโปรเจกต์', // (added)
@@ -343,6 +345,8 @@ const en: Dict = {
   saving: 'Saving…',
   unsaved: 'Unsaved changes',
   preview: 'Preview',
+  previewBanner: 'Preview — only you can see this page',
+  previewNoPay: 'Support is disabled in preview',
   saveChanges: 'Save changes',
   editProject: 'Edit project',
   createProject: 'Create project',

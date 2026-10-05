@@ -50,3 +50,20 @@ test('editor: live card preview and the goal lock on a published project', async
   await page.getByLabel('เป้าหมาย').fill('5000')
   await expect(page.getByText(/ลดเป้าหมายต่ำกว่ายอดที่ได้รับแล้ว/)).toHaveCount(2) // note + field error
 })
+
+test('editor: preview opens the full page of a draft, only for its owner', async ({ page, context }) => {
+  const c = await seedCreator()
+  const p = await seedProject(c.token, { goalSats: 10_000, publish: false })
+  await signInAs(page, c.token)
+  await page.goto(`/projects/${p.id}/edit?step=0`)
+
+  const [tab] = await Promise.all([context.waitForEvent('page'), page.getByRole('link', { name: 'ดูตัวอย่าง' }).click()])
+  await expect(tab).toHaveURL(new RegExp(`/p/${p.slug}\\?preview=${p.id}$`))
+  await expect(tab.getByText('ตัวอย่างหน้าโปรเจกต์ เห็นเฉพาะคุณ')).toBeVisible()
+  await expect(tab.getByRole('heading', { name: p.title })).toBeVisible()
+  await expect(tab.getByRole('button', { name: 'ยังรับการสนับสนุนในตัวอย่างไม่ได้' }).first()).toBeDisabled()
+
+  // The public page still hides the draft.
+  await tab.goto(`/p/${p.slug}`)
+  await expect(tab.getByText('ไม่พบโปรเจกต์')).toBeVisible()
+})

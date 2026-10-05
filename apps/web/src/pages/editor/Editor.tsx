@@ -79,6 +79,8 @@ function Editor({ project }: { project: Project | undefined }) {
     [t.s5, t.s5sub],
   ]
   const isDraft = !project || project.status === 'draft'
+  // Drafts open the owner-only preview of the full page; live projects open the page itself.
+  const previewHref = project ? `/p/${project.slug}${isDraft ? `?preview=${project.id}` : ''}` : undefined
 
   const next = async () => {
     setActionError(null)
@@ -151,9 +153,9 @@ function Editor({ project }: { project: Project | undefined }) {
           </Link>
           <SaveLabel save={save} />
           <a
-            className={cx('btn btn-secondary', isDraft && 'pointer-events-none opacity-45')}
-            aria-disabled={isDraft}
-            href={project && !isDraft ? `/p/${project.slug}` : undefined}
+            className={cx('btn btn-secondary', !project && 'pointer-events-none opacity-45')}
+            aria-disabled={!project}
+            href={previewHref}
             target="_blank"
             rel="noreferrer"
           >
@@ -215,6 +217,11 @@ function Editor({ project }: { project: Project | undefined }) {
             onClick={() => (step > 0 ? goTo(step - 1) : navigate(project ? `/dashboard/${project.id}` : '/dashboard'))}
           />
           <span className="tnum flex-1 text-center text-[13px] text-neutral-700">{`${t.stepN} ${step + 1} ${t.of} ${STEPS}`}</span>
+          {project && (
+            <a className="btn btn-ghost text-[13px]" href={previewHref} target="_blank" rel="noreferrer">
+              {t.preview}
+            </a>
+          )}
           <Button variant="ghost" className="text-[13px]" onClick={() => (project ? void flush() : void ensureProject())} loading={save.kind === 'saving' || creating}>
             {t.saveDraft}
           </Button>

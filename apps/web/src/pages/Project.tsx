@@ -1,9 +1,9 @@
-import type { GetPublicProjectResponse, ListSupportersResponse, ProjectStats, PublicProject, Supporter } from '@nampu/types'
+import type { GetProjectResponse, GetPublicProjectResponse, ListSupportersResponse, ProjectStats, PublicProject, Supporter } from '@nampu/types'
 import { PUBLIC_PAGE } from '@nampu/types'
 import { Avatar, Brand, Button, Icon, Plate, Progress, Tag, Tabs } from '@nampu/ui'
 import { type InfiniteData, type QueryClient, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router'
+import { createContext, useContext, useState } from 'react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { ContributeFlow } from '../components/contribute/Contribute'
 import { Markdown } from '../components/Markdown'
 import { PublicNav } from '../components/PublicChrome'
@@ -17,16 +17,30 @@ import { useTrending } from './Discover'
 
 type Tab = 'story' | 'supporters'
 
+/** `/p/:slug?preview=<id>`: the owner's view of their own project, drafts included. */
+const PreviewCtx = createContext<string | null>(null)
+
+/** Shapes the owner's copy like the public response; drafts have no supporters yet. */
+function asPreview(p: GetProjectResponse): GetPublicProjectResponse {
+  const { updatedAt: _u, ...rest } = p
+  return { ...rest, status: p.status === 'closed' ? 'closed' : 'active', supporters: { supporters: [], nextCursor: null }, leaders: [] }
+}
+
 export default function ProjectPage() {
   const { slug } = useParams() as { slug: string }
   const desktop = useIsDesktop()
   const qc = useQueryClient()
-  const project = useQuery({ queryKey: ['public', slug], queryFn: () => api.publicProject(slug), retry: (n, e) => !(e instanceof ApiError && e.status === 404) && n < 2 })
+  const previewId = useSearchParams()[0].get('preview')
+  const project = useQuery({
+    queryKey: previewId ? ['preview', previewId] : ['public', slug],
+    queryFn: () => (previewId ? api.project(previewId).then(asPreview) : api.publicProject(slug)),
+    retry: (n, e) => !(e instanceof ApiError && (e.status === 404 || e.status === 401)) && n < 2,
+  })
   const [contributing, setContributing] = useState(false)
 
   // Live totals + activity while the page is open, applied locally: a refetch here would
   // cost every open viewer two requests per payment.
-  useProjectSocket(project.data ? slug : null, (m) => {
+  useProjectSocket(project.data && !previewId ? slug : null, (m) => {
     if (m.type === 'payment') applyPayment(qc, slug, m.supporter, m.stats)
   })
 
@@ -34,12 +48,24 @@ export default function ProjectPage() {
   if (project.isError) return <NotFound />
   const p = project.data
   const View = desktop ? DesktopProject : MobileProject
+  if (previewId)
+    return (
+      <PreviewCtx.Provider value={previewId}>
+        <PreviewBar />
+        <View project={p} onContribute={() => {}} />
+      </PreviewCtx.Provider>
+    )
   return (
     <>
       <View project={p} onContribute={() => setContributing(true)} />
       <ContributeFlow project={p} open={contributing} onClose={() => setContributing(false)} desktop={desktop} />
     </>
   )
+}
+
+function PreviewBar() {
+  const { t } = useI18n()
+  return <div className="sticky top-0 z-20 bg-accent-700 px-4 py-2 text-center text-[13px] text-white">{t.previewBanner}</div>
 }
 
 function NotFound() {
@@ -67,16 +93,19 @@ function useIsTrending(p: PublicProject) {
 
 // Both lists start from the data embedded in GET /api/p/:slug and are then kept current by
 // the WebSocket, so they never refetch on their own; only "load more" hits the network.
-const embedded = (qc: QueryClient, slug: string) => qc.getQueryData<GetPublicProjectResponse>(['public', slug])
+// A preview keeps its own cache entries, seeded empty, so nothing hits the public API.
+const embedded = (qc: QueryClient, slug: string, previewId: string | null) =>
+  qc.getQueryData<GetPublicProjectResponse>(previewId ? ['preview', previewId] : ['public', slug])
 
 function useActivity(slug: string) {
   const qc = useQueryClient()
+  const previewId = useContext(PreviewCtx)
   return useInfiniteQuery({
-    queryKey: ['public-supporters', slug],
+    queryKey: previewId ? ['preview-supporters', previewId] : ['public-supporters', slug],
     queryFn: ({ pageParam }) => api.publicSupporters(slug, pageParam, PUBLIC_PAGE.supporters),
     initialPageParam: undefined as string | undefined,
     initialData: () => {
-      const p = embedded(qc, slug)
+      const p = embedded(qc, slug, previewId)
       return p && { pages: [p.supporters], pageParams: [undefined] }
     },
     getNextPageParam: (l) => l.nextCursor ?? undefined,
@@ -86,10 +115,11 @@ function useActivity(slug: string) {
 
 function useLeaders(slug: string) {
   const qc = useQueryClient()
+  const previewId = useContext(PreviewCtx)
   return useQuery({
-    queryKey: ['leaderboard', slug],
+    queryKey: previewId ? ['preview-leaderboard', previewId] : ['leaderboard', slug],
     queryFn: () => api.leaderboard(slug, PUBLIC_PAGE.leaders).then((r) => r.leaders),
-    initialData: () => embedded(qc, slug)?.leaders,
+    initialData: () => embedded(qc, slug, previewId)?.leaders,
     staleTime: Infinity,
   })
 }
@@ -129,10 +159,11 @@ function Tags({ p }: { p: PublicProject }) {
 
 function ContributeButton({ p, onClick, className }: { p: PublicProject; onClick: () => void; className?: string }) {
   const { t } = useI18n()
-  const open = isOpen(p)
+  const preview = useContext(PreviewCtx) !== null
+  const open = isOpen(p) && !preview
   return (
     <Button variant="cta" icon={open ? 'zap' : undefined} className={className} disabled={!open} onClick={onClick}>
-      {open ? t.contribute : t.projectClosed}
+      {open ? t.contribute : preview ? t.previewNoPay : t.projectClosed}
     </Button>
   )
 }
