@@ -10,9 +10,11 @@
     "directory": "../web/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    // These paths go to the Worker first; everything else is served straight from
-    // static assets (no Worker invocation, no CPU cost).
-    "run_worker_first": ["/api/*", "/p/*", "/media/*"]
+    // Page requests go to the Worker first so the canonical-host redirect also covers
+    // "/" and SPA routes on www./loalaam.com/workers.dev (static assets skip the Worker
+    // otherwise). Hashed bundles and icons are still served straight from assets
+    // (no Worker invocation, no CPU cost); the Worker falls back to ASSETS for the rest.
+    "run_worker_first": ["/*", "!/assets/*", "!/favicon*", "!/apple-touch-icon.png"]
   },
 
   // Production hosts. Everything but PUBLIC_ORIGIN (www, the loalaam.com typo domain,
