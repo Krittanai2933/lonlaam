@@ -1,9 +1,9 @@
-import { NOSTR_AUTH_KIND } from '@nampu/types'
+import { NOSTR_AUTH_KIND, NOSTR_HTTP_AUTH_KIND } from '@nampu/types'
 import { schnorr, secp256k1 } from '@noble/curves/secp256k1.js'
 import { describe, expect, it } from 'vitest'
 import { Bech32Error, bech32Decode, decodeNpub, encodeLnurl, encodeNpub, fromWords } from '../src/lib/bech32'
 import { bytesToHex, hexToBytes } from '../src/lib/hex'
-import { nostrEventId, verifyLnurlAuth, verifyNostrEvent } from '../src/lib/signatures'
+import { nip98Pubkey, nostrEventId, verifyLnurlAuth, verifyNostrEvent } from '../src/lib/signatures'
 
 describe('bech32', () => {
   it('decodes the LUD-01 test vector', () => {
@@ -31,7 +31,7 @@ describe('bech32', () => {
   })
 })
 
-async function signedEvent(overrides: Partial<{ created_at: number; tags: string[][] }> = {}) {
+async function signedEvent(overrides: Partial<{ created_at: number; kind: number; tags: string[][] }> = {}) {
   const sk = schnorr.utils.randomSecretKey()
   const base = {
     pubkey: bytesToHex(schnorr.getPublicKey(sk)),
@@ -56,6 +56,26 @@ describe('Nostr event verification', () => {
     expect(await verifyNostrEvent({ ...e, tags: [['challenge', 'cd'.repeat(32)]] })).toBe(false)
     expect(await verifyNostrEvent({ ...e, sig: e.sig.replace(/^./, e.sig[0] === 'a' ? 'b' : 'a') })).toBe(false)
     expect(await verifyNostrEvent({ ...e, pubkey: 'zz' })).toBe(false)
+  })
+})
+
+describe('NIP-98 supporter proof', () => {
+  const url = 'https://nampu.test/api/p/demo/invoices'
+  const proof = (o: Parameters<typeof signedEvent>[0] = {}) =>
+    signedEvent({ kind: NOSTR_HTTP_AUTH_KIND, tags: [['u', url], ['method', 'POST']], ...o })
+
+  it('returns the pubkey for a fresh proof of this endpoint', async () => {
+    const e = await proof()
+    expect(await nip98Pubkey(e, url, 'POST')).toBe(e.pubkey)
+  })
+  it('rejects another project, host, method, kind, or a stale or forged event', async () => {
+    const e = await proof()
+    expect(await nip98Pubkey(e, 'https://nampu.test/api/p/other/invoices', 'POST')).toBeNull()
+    expect(await nip98Pubkey(e, 'https://evil.test/api/p/demo/invoices', 'POST')).toBeNull()
+    expect(await nip98Pubkey(await proof({ tags: [['u', url], ['method', 'GET']] }), url, 'POST')).toBeNull()
+    expect(await nip98Pubkey(await signedEvent({ tags: [['u', url], ['method', 'POST']] }), url, 'POST')).toBeNull()
+    expect(await nip98Pubkey(await proof({ created_at: Math.floor(Date.now() / 1000) - 11 * 60 }), url, 'POST')).toBeNull()
+    expect(await nip98Pubkey({ ...e, pubkey: (await proof()).pubkey }, url, 'POST')).toBeNull()
   })
 })
 

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ApiError, errorText } from '../../lib/api'
 import { fmt, fmtDate } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
-import { fetchProfile, hasNip07 } from '../../lib/nostr'
+import { fetchProfile, hasNip07, profileName, shortNpub, signSupporterProof } from '../../lib/nostr'
 import { ShareButtons } from '../share'
 import { clock, PRESETS, useContribute, type Contribute } from './useContribute'
 
@@ -152,9 +152,9 @@ function AmountForm({ c, desktop }: { c: Contribute; desktop?: boolean }) {
     setNostrBusy(true)
     try {
       const pk = await window.nostr.getPublicKey()
-      const p = await fetchProfile(pk)
-      const n = (p?.display_name || p?.displayName || p?.name || '').trim()
-      c.setName((n || `npub…${pk.slice(-4)}`).slice(0, LIMITS.supporterName.max))
+      const [p, proof] = await Promise.all([fetchProfile(pk), signSupporterProof(c.slug).catch(() => null)])
+      const n = profileName(p) || (await shortNpub(pk))
+      c.setNostrName(n.slice(0, LIMITS.supporterName.max), proof)
     } catch {
       // user declined
     } finally {

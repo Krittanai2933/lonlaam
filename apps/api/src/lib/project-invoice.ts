@@ -19,7 +19,7 @@ export async function createProjectInvoice(
   db: Db,
   projectId: string,
   lightningAddress: string,
-  input: { amountSats: number; supporterName?: string | null; comment?: string | null },
+  input: { amountSats: number; supporterName?: string | null; supporterPubkey?: string | null; comment?: string | null },
 ): Promise<InvoiceRow> {
   const opts = lnurlOptions(env)
   const amountMsat = input.amountSats * 1000
@@ -68,6 +68,7 @@ export async function createProjectInvoice(
         projectId,
         amountMsat,
         supporterName: input.supporterName || null,
+        supporterPubkey: input.supporterPubkey || null,
         comment: input.comment || null,
         bolt11: cb.pr,
         paymentHash: decoded.paymentHash,

@@ -6,6 +6,7 @@ import { createContext, useContext, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { ContributeFlow } from '../components/contribute/Contribute'
 import { Markdown } from '../components/Markdown'
+import { SupporterAvatar, SupporterChip, SupporterName, useSupporterIdentity } from '../components/supporter'
 import { PublicNav } from '../components/PublicChrome'
 import { projectUrl, ShareButtons } from '../components/share'
 import { api, ApiError } from '../lib/api'
@@ -206,14 +207,18 @@ function Leaderboard({ slug, compact }: { slug: string; compact?: boolean }) {
         compact ? (
           <div key={l.invoiceId} className="grid grid-cols-[26px_1fr_auto] gap-2.5 border-b border-divider py-2 text-sm">
             <span className="tnum font-heading text-lg text-accent-700">{i + 1}</span>
-            <span className="truncate">{l.name ?? t.anonymous}</span>
+            <span className="min-w-0">
+              <SupporterChip s={l} />
+            </span>
             <span className="tnum font-medium">{fmt(l.amountSats)}</span>
           </div>
         ) : (
           <div key={l.invoiceId} className="grid grid-cols-[24px_30px_1fr_auto] items-center gap-2.5 border-b border-divider py-[9px]">
             <span className="tnum font-heading text-lg text-accent-700">{i + 1}</span>
-            <Avatar name={l.name ?? t.anonymous} size={28} />
-            <span className="truncate text-sm">{l.name ?? t.anonymous}</span>
+            <SupporterAvatar s={l} size={28} />
+            <span className="truncate text-sm">
+              <SupporterName s={l} />
+            </span>
             <span className="tnum text-sm font-medium">{fmt(l.amountSats)}</span>
           </div>
         ),
@@ -224,12 +229,16 @@ function Leaderboard({ slug, compact }: { slug: string; compact?: boolean }) {
 
 function ActivityRow({ s, compact, now }: { s: Supporter; compact?: boolean; now: number }) {
   const { t, f } = useI18n()
-  const who = s.name ?? t.anonymous
+  const { name: who, picture } = useSupporterIdentity(s)
   return (
     <div className="flex gap-2.5 border-b border-divider py-2 text-sm">
-      <span className="mt-[3px] text-accent">
-        <Icon name="zap" />
-      </span>
+      {picture ? (
+        <Avatar name={who} src={picture} size={20} className="mt-px" />
+      ) : (
+        <span className="mt-[3px] text-accent">
+          <Icon name="zap" />
+        </span>
+      )}
       {compact ? (
         <span className="flex-1">
           {who} <span className="tnum text-accent-700">+{fmt(s.amountSats)}</span>

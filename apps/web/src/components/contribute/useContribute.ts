@@ -1,6 +1,7 @@
-import type { Invoice, PublicProject } from '@nampu/types'
+import type { Invoice, NostrEvent, PublicProject } from '@nampu/types'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError } from '../../lib/api'
+import { signSupporterProof } from '../../lib/nostr'
 
 export type FlowState = 'amount' | 'loading' | 'invoice' | 'expired' | 'error' | 'success'
 
@@ -16,6 +17,8 @@ export function useContribute(project: PublicProject) {
   const [amount, setAmount] = useState(21000)
   const [anon, setAnon] = useState(false)
   const [name, setName] = useState('')
+  // Signed when the supporter fills their name from Nostr; dropped if they retype the name.
+  const [nostrProof, setNostrProof] = useState<NostrEvent | null>(null)
   const [message, setMessage] = useState('')
   const [invoice, setInvoice] = useState<Invoice | null>(null)
   const [error, setError] = useState<ApiError | Error | null>(null)
@@ -29,9 +32,16 @@ export function useContribute(project: PublicProject) {
     setError(null)
     setAmountError(null)
     try {
+      let proof = anon ? null : nostrProof
+      // The server accepts proofs up to 10 minutes old; refresh one that is close to that.
+      if (proof && Date.now() / 1000 - proof.created_at > 8 * 60) {
+        proof = await signSupporterProof(project.slug).catch(() => null)
+        setNostrProof(proof)
+      }
       const inv = await api.createInvoice(project.slug, {
         amountSats: amount,
         ...(!anon && name.trim() && { supporterName: name.trim() }),
+        ...(proof && { nostrProof: proof }),
         ...(message.trim() && { comment: message.trim() }),
       })
       if (id !== reqId.current) return
@@ -48,7 +58,7 @@ export function useContribute(project: PublicProject) {
       setError(e instanceof Error ? e : new Error(String(e)))
       setState('error')
     }
-  }, [project.slug, amount, anon, name, message])
+  }, [project.slug, amount, anon, name, nostrProof, message])
 
   const reset = useCallback(() => {
     reqId.current++
@@ -112,6 +122,7 @@ export function useContribute(project: PublicProject) {
 
   const secsLeft = invoice ? Math.max(0, Math.round((invoice.expiresAt - now) / 1000)) : 0
   return {
+    slug: project.slug,
     state,
     amount,
     setAmount: (n: number) => {
@@ -121,7 +132,16 @@ export function useContribute(project: PublicProject) {
     anon,
     setAnon,
     name,
-    setName,
+    /** Typed by hand: the name no longer comes from the proven Nostr profile. */
+    setName: (n: string) => {
+      setName(n)
+      setNostrProof(null)
+    },
+    /** Filled from Nostr, with the signed proof of the pubkey. */
+    setNostrName: (n: string, proof: NostrEvent | null) => {
+      setName(n)
+      setNostrProof(proof)
+    },
     message,
     setMessage,
     invoice,

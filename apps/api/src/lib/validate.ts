@@ -29,4 +29,14 @@ export const lightningAddressSchema = v.pipe(v.string(), v.trim(), v.maxLength(3
 export const titleSchema = trimmed(LIMITS.title.min, LIMITS.title.max)
 export const summarySchema = trimmed(0, LIMITS.summary.max)
 export const bodySchema = v.pipe(v.string(), v.maxLength(LIMITS.body.max))
+export const nostrEventSchema = v.object({
+  id: v.string(),
+  pubkey: v.string(),
+  created_at: v.pipe(v.number(), v.safeInteger()),
+  kind: v.number(),
+  tags: v.pipe(v.array(v.array(v.pipe(v.string(), v.maxLength(512)))), v.maxLength(16)),
+  content: v.pipe(v.string(), v.maxLength(1024)),
+  sig: v.string(),
+})
+
 export const goalSchema = v.nullable(v.pipe(v.number(), v.safeInteger(), v.minValue(LIMITS.goalSats.min), v.maxValue(LIMITS.goalSats.max)))

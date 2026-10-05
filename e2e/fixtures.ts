@@ -109,16 +109,47 @@ export async function signInAs(page: Page, token: string) {
 /** Stub a NIP-07 extension whose signatures are real (signed in Node). */
 export async function installNip07(page: Page, sk = nostrKey().sk) {
   await page.exposeFunction('__e2eSign', (t: Parameters<typeof signEvent>[1]) => signEvent(sk, t))
-  await page.addInitScript(() => {
+  await page.addInitScript((pubkey) => {
     const w = window as unknown as { nostr: unknown; __e2eSign: (t: unknown) => Promise<unknown> }
-    w.nostr = { getPublicKey: async () => '', signEvent: (t: unknown) => w.__e2eSign(t) }
-  })
+    w.nostr = { getPublicKey: async () => pubkey, signEvent: (t: unknown) => w.__e2eSign(t) }
+  }, hex(schnorr.getPublicKey(sk)))
 }
+
+/** Kind-0 profiles served by the stub relays, by hex pubkey. */
+export type RelayProfiles = Map<string, { name?: string; picture?: string }>
+
+/** 1×1 PNG served for any https://img.test/… profile picture. */
+const PIXEL = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64')
 
 /**
  * Every test starts in Thai, light theme, and fails if the page throws or logs an error.
+ * Tests that use `relayProfiles` get stub Nostr relays: they answer REQs from it, then EOSE.
  */
-export const test = base.extend<{ pageErrors: string[] }>({
+export const test = base.extend<{ pageErrors: string[]; relayProfiles: RelayProfiles }>({
+  relayProfiles: [
+    async ({ page }, use) => {
+      const profiles: RelayProfiles = new Map()
+      await page.routeWebSocket(/^wss:\/\//, (ws) => {
+        ws.onMessage((raw) => {
+          const msg = JSON.parse(String(raw)) as unknown[]
+          if (msg[0] !== 'REQ') return
+          const [, sub, ...filters] = msg as [string, string, ...{ kinds?: number[]; authors?: string[] }[]]
+          for (const f of filters) {
+            if (!f.kinds?.includes(0)) continue
+            for (const pubkey of f.authors ?? []) {
+              const p = profiles.get(pubkey)
+              if (p) ws.send(JSON.stringify(['EVENT', sub, { id: '', sig: '', pubkey, created_at: 1, kind: 0, tags: [], content: JSON.stringify(p) }]))
+            }
+          }
+          ws.send(JSON.stringify(['EOSE', sub]))
+        })
+      })
+      await page.route('https://img.test/**', (r) => r.fulfill({ contentType: 'image/png', body: PIXEL }))
+      await use(profiles)
+    },
+    // Opt-in: the NIP-46 login code (nostr-tools) doesn't expect relays that answer instantly.
+    { auto: false },
+  ],
   pageErrors: [
     async ({ page }, use) => {
       const errors: string[] = []

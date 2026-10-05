@@ -10,25 +10,14 @@ import { authChallenges, sessions } from '../db/schema'
 import { encodeLnurl } from '../lib/bech32'
 import { ApiError } from '../lib/errors'
 import { loginWith } from '../lib/session'
-import { verifyLnurlAuth, verifyNostrEvent } from '../lib/signatures'
+import { EVENT_CLOCK_SKEW_S, verifyLnurlAuth, verifyNostrEvent } from '../lib/signatures'
 import { randomHex32, sha256Hex } from '../lib/util'
-import { json } from '../lib/validate'
+import { json, nostrEventSchema } from '../lib/validate'
 import { requireCreator } from '../middleware'
 
 const CHALLENGE_TTL_MS = 5 * 60_000
-const EVENT_CLOCK_SKEW_S = 10 * 60
 
-const nostrLoginBody = v.object({
-  event: v.object({
-    id: v.string(),
-    pubkey: v.string(),
-    created_at: v.pipe(v.number(), v.safeInteger()),
-    kind: v.number(),
-    tags: v.pipe(v.array(v.array(v.pipe(v.string(), v.maxLength(512)))), v.maxLength(16)),
-    content: v.pipe(v.string(), v.maxLength(1024)),
-    sig: v.string(),
-  }),
-})
+const nostrLoginBody = v.object({ event: nostrEventSchema })
 
 const authFailed = (msg: string) => new ApiError(401, 'auth_failed', msg)
 

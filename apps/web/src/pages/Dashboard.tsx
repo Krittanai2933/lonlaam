@@ -4,6 +4,7 @@ import { Avatar, BarChart, Brand, Button, cx, Icon, Menu, Notice, Progress, Seg,
 import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useState, type ReactNode } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router'
+import { SupporterAvatar, SupporterName } from '../components/supporter'
 import { api } from '../lib/api'
 import { FullPageSpinner, useAuth } from '../lib/auth'
 import { ago, fmt, fmtDate } from '../lib/format'
@@ -233,9 +234,11 @@ function SupporterList({ query }: { query: SupportersQuery }) {
     <>
       {rows.map((s) => (
         <div key={s.invoiceId} className="grid grid-cols-[34px_1fr_auto] items-center gap-2.5 border-b border-divider py-2.5">
-          <Avatar name={s.name ?? t.anonymous} />
+          <SupporterAvatar s={s} />
           <div className="min-w-0">
-            <div className="truncate text-sm">{s.name ?? t.anonymous}</div>
+            <div className="truncate text-sm">
+              <SupporterName s={s} />
+            </div>
             <div className="truncate text-xs text-neutral-600">{s.comment || `Lightning · ${ago(s.paidAt, t.ago, now)}`}</div>
           </div>
           <span className="tnum text-sm font-medium text-accent-700">+{fmt(s.amountSats)}</span>
@@ -381,9 +384,11 @@ function SupporterTable({ query, searching }: { query: SupportersQuery; searchin
             <tr key={s.invoiceId}>
               <td>
                 <div className="flex items-center gap-2.5">
-                  <Avatar name={s.name ?? t.anonymous} size={28} />
+                  <SupporterAvatar s={s} size={28} />
                   <div>
-                    <div>{s.name ?? t.anonymous}</div>
+                    <div>
+                      <SupporterName s={s} />
+                    </div>
                     <div className="text-[11px] text-neutral-600">Lightning</div>
                   </div>
                 </div>

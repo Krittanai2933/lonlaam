@@ -95,6 +95,8 @@ export const invoices = sqliteTable(
       .references(() => projects.id, { onDelete: 'cascade' }),
     amountMsat: integer('amount_msat').notNull(),
     supporterName: text('supporter_name'),
+    /** Hex Nostr pubkey proven by a NIP-98 signature (see nip98Pubkey); shown as their profile. */
+    supporterPubkey: text('supporter_pubkey'),
     comment: text('comment'),
     bolt11: text('bolt11').notNull(),
     paymentHash: text('payment_hash').notNull().unique(),

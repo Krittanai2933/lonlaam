@@ -67,10 +67,11 @@ export function toInvoice(r: InvoiceRow): Invoice {
   }
 }
 
-export function toSupporter(r: Pick<InvoiceRow, 'id' | 'supporterName' | 'comment' | 'amountMsat' | 'paidAt'>): Supporter {
+export function toSupporter(r: Pick<InvoiceRow, 'id' | 'supporterName' | 'supporterPubkey' | 'comment' | 'amountMsat' | 'paidAt'>): Supporter {
   return {
     invoiceId: r.id,
     name: r.supporterName,
+    pubkey: r.supporterPubkey,
     comment: r.comment,
     amountSats: msatToSats(r.amountMsat),
     paidAt: r.paidAt ?? 0,
