@@ -3,7 +3,7 @@ import { and, asc, eq } from 'drizzle-orm'
 import { getDb, type Db } from '../context'
 import { creators, invoices, projects, type SprinklePayoutRow, type SprinkleRow, sprinklePayouts, sprinkles } from '../db/schema'
 import { verifyPayment } from '../lightning/lnurl'
-import { NwcClient, NwcError } from '../lightning/nwc'
+import { NwcError, NwcWallet } from '../lightning/nwc'
 import { ApiError } from '../lib/errors'
 import { createProjectInvoice } from '../lib/project-invoice'
 import { nwcConnection, pickProjects } from '../lib/sprinkle'
@@ -14,33 +14,42 @@ import { hexToBytes, msatToSats, newId, sha256Hex } from '../lib/util'
  *
  * 1. pending: ask the platform wallet (NWC lookup_invoice) whether the supporter paid.
  * 2. distributing: pick random eligible projects, get an invoice from each creator's
- *    Lightning Address (createProjectInvoice, same as a direct payment) and pay it with
- *    NWC pay_invoice. The project's own Durable Object then sees it settle via LUD-21 and
- *    counts it like any other supporter payment.
+ *    Lightning Address (createProjectInvoice, same as a direct payment) and pay them
+ *    concurrently with NWC pay_invoice. The project's own Durable Object then sees each
+ *    settle via LUD-21 and counts it like any other supporter payment.
  *
  * All state lives in D1 (sprinkles / sprinkle_payouts); each alarm run reloads it, so a
  * crash or retried alarm just picks up where the last one stopped. Paying the same BOLT11
- * twice is safe (one payment hash), and a new invoice is only requested for a payout after
- * the creator's wallet confirmed the previous one was not paid.
+ * twice is safe (one payment hash), and a payout only gets a new invoice once we know the
+ * previous one was not paid: our wallet says the payment failed, or the creator's wallet
+ * confirms the expired invoice unpaid.
  */
 
-/** Payouts handled per alarm run: ~4 subrequests each (LNURL ×2, project DO, verify) + 1 relay socket. */
-const PAYOUTS_PER_RUN = 3
-/** Attempts (new invoices) per project before it is replaced by another one. */
+/** Payouts handled per alarm run: ~4 subrequests each (LNURL ×2, project DO, verify) + the relay socket(s). */
+const PAYOUTS_PER_RUN = 5
+/** Definite failures (no invoice, no route…) per project before it is replaced by another one. */
 const MAX_ATTEMPTS = 3
 /** Give up distributing after this long; whatever is left stays in the platform wallet. */
 const DISTRIBUTE_DEADLINE_MS = 2 * 60 * 60_000
 const EXPIRY_GRACE_MS = 30_000
-/** How often to re-check a payout whose payment may still be in flight. */
-const RECHECK_MS = 15_000
-/** Wallet-side problems (empty, over budget, relay down): wait instead of burning attempts. */
+/** How soon to look again at a payout whose payment may still be in flight. */
+const RECHECK_MS = 3_000
+/** Wallet-side problems (empty, over budget, relay down): wait, growing, instead of hammering. */
 const WALLET_BACKOFF_MS = [10_000, 30_000, 60_000, 5 * 60_000]
 /** These mean the platform wallet itself can't pay right now, not that this project is bad. */
 const WALLET_ERRORS = new Set(['INSUFFICIENT_BALANCE', 'QUOTA_EXCEEDED', 'RATE_LIMITED', 'RESTRICTED', 'UNAUTHORIZED', 'NOT_IMPLEMENTED'])
 
 const pollInterval = (ageMs: number) => (ageMs < 2 * 60_000 ? 3_000 : 10_000)
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/** What our own wallet knows about a payment hash. */
+type Lookup = 'settled' | 'failed' | 'pending' | 'none' | 'unknown'
+type SetPayout = (v: Partial<SprinklePayoutRow>) => Promise<unknown>
 
 export class SprinkleRoom extends DurableObject<Env> {
+  /** Something moved forward this run (a payout paid, the supporter's payment seen). */
+  private progressed = false
+
   // ─── RPC ────────────────────────────────────────────────────────────────────
 
   async start(sprinkleId: string): Promise<void> {
@@ -63,17 +72,18 @@ export class SprinkleRoom extends DurableObject<Env> {
       return this.backoff()
     }
 
-    let client: NwcClient | null = null
+    const wallet = new NwcWallet(conn)
+    this.progressed = false
     try {
-      client = await NwcClient.connect(conn)
-      const next = s.status === 'pending' ? await this.checkPayment(db, client, s) : await this.distribute(db, client, s)
-      await this.ctx.storage.put('walletFailures', 0)
-      if (next !== null) await this.ctx.storage.setAlarm(Math.max(next, Date.now() + 500))
+      const next = s.status === 'pending' ? await this.checkPayment(db, wallet, s) : await this.distribute(db, wallet, s)
+      // Only real progress resets the backoff; a run that merely waited must not.
+      if (this.progressed) await this.ctx.storage.put('walletFailures', 0)
+      if (next !== null) await this.ctx.storage.setAlarm(Math.max(next, Date.now() + 200))
     } catch (e) {
       console.warn('sprinkle: run failed', { sprinkle: id, error: e instanceof Error ? e.message : String(e) })
       await this.backoff()
     } finally {
-      client?.close()
+      wallet.close()
     }
   }
 
@@ -84,10 +94,9 @@ export class SprinkleRoom extends DurableObject<Env> {
   }
 
   /** Returns when to run next, or null when there is nothing left to do. */
-  private async checkPayment(db: Db, client: NwcClient, s: SprinkleRow): Promise<number | null> {
+  private async checkPayment(db: Db, wallet: NwcWallet, s: SprinkleRow): Promise<number | null> {
     const now = Date.now()
-    const { settled } = await client.lookupInvoice(s.paymentHash)
-    if (!settled) {
+    if ((await this.lookup(wallet, s.paymentHash)) !== 'settled') {
       if (now >= s.expiresAt + EXPIRY_GRACE_MS) {
         await db.update(sprinkles).set({ status: 'expired' }).where(and(eq(sprinkles.id, s.id), eq(sprinkles.status, 'pending')))
         return null
@@ -100,11 +109,12 @@ export class SprinkleRoom extends DurableObject<Env> {
       .where(and(eq(sprinkles.id, s.id), eq(sprinkles.status, 'pending')))
       .returning()
     if (!paid) return now // changed under us; reload next run
+    this.progressed = true
     console.log('sprinkle: paid', { sprinkle: s.id, sats: msatToSats(s.amountMsat), projects: s.projectCount })
-    return this.distribute(db, client, paid)
+    return this.distribute(db, wallet, paid)
   }
 
-  private async distribute(db: Db, client: NwcClient, s: SprinkleRow): Promise<number | null> {
+  private async distribute(db: Db, wallet: NwcWallet, s: SprinkleRow): Promise<number | null> {
     const now = Date.now()
     if (now - (s.paidAt ?? s.createdAt) > DISTRIBUTE_DEADLINE_MS) return this.finish(db, s, 'deadline')
 
@@ -121,29 +131,44 @@ export class SprinkleRoom extends DurableObject<Env> {
       }
     }
 
-    for (const p of payouts.filter(open).slice(0, PAYOUTS_PER_RUN)) await this.payout(db, client, s, p)
+    // Concurrently, over one shared wallet connection that reconnects if the relay drops it.
+    const results = await Promise.allSettled(payouts.filter(open).slice(0, PAYOUTS_PER_RUN).map((p) => this.payout(db, wallet, s, p)))
+    const failure = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
+    if (failure) throw failure.reason
 
     payouts = await this.payouts(db, s.id)
     if (!payouts.some(open) && payouts.filter((p) => p.status === 'paid').length >= s.projectCount) return this.finish(db, s, 'complete')
-    // Fresh work: continue right away. Only in-flight payments left: check back later.
-    return Date.now() + (payouts.some((p) => p.status === 'pending') || payouts.filter((p) => p.status !== 'failed').length < s.projectCount ? 1000 : RECHECK_MS)
+    // Fresh work: continue right away. Only in-flight payments left: look again shortly.
+    const fresh = payouts.some((p) => p.status === 'pending') || payouts.filter((p) => p.status !== 'failed').length < s.projectCount
+    return Date.now() + (fresh ? 200 : RECHECK_MS)
   }
 
-  private async payout(db: Db, client: NwcClient, s: SprinkleRow, p: SprinklePayoutRow): Promise<void> {
-    const set = (v: Partial<SprinklePayoutRow>) => db.update(sprinklePayouts).set({ ...v, updatedAt: Date.now() }).where(eq(sprinklePayouts.id, p.id))
+  private async payout(db: Db, wallet: NwcWallet, s: SprinkleRow, p: SprinklePayoutRow): Promise<void> {
+    const set: SetPayout = (v) => db.update(sprinklePayouts).set({ ...v, updatedAt: Date.now() }).where(eq(sprinklePayouts.id, p.id))
 
     // A payment was sent earlier (maybe still in flight): find out what happened before anything else.
     if (p.status === 'paying' && p.invoiceId) {
       if (Date.now() - p.updatedAt < RECHECK_MS) return
       const inv = await db.query.invoices.findFirst({ where: eq(invoices.id, p.invoiceId) })
       if (!inv) return void (await set({ status: 'pending', invoiceId: null }))
-      if (inv.status === 'paid') return void (await set({ status: 'paid' }))
+      if (inv.status === 'paid') return this.markPaid(set)
+      const valid = inv.expiresAt > Date.now() + 60_000
+
+      // Our own wallet first (same socket, no extra subrequest), then the creator's.
+      const ours = await this.lookup(wallet, inv.paymentHash)
+      if (ours === 'settled') return this.markPaid(set)
+      if (ours === 'pending') return // in flight: look again shortly
+      if (ours === 'failed' || ours === 'none') {
+        // Definitely not paid: re-send the same invoice (safe), or get a new one once it expired.
+        if (valid) return this.pay(wallet, p, inv.bolt11, inv.paymentHash, set)
+        return void (await set({ status: 'pending', invoiceId: null }))
+      }
       const v = await verifyPayment(inv.verifyUrl).catch(() => null)
-      if (v?.settled) return void (await set({ status: 'paid' }))
-      if (!v) return // creator's wallet unreachable: can't tell yet, ask again next run
-      if (inv.expiresAt > Date.now() + 60_000) return this.pay(client, p, inv.bolt11, inv.paymentHash, set, true)
-      // Expired and confirmed unpaid: safe to request a fresh invoice.
-      return void (await set({ status: p.attempts >= MAX_ATTEMPTS ? 'failed' : 'pending', invoiceId: null }))
+      if (v?.settled) return this.markPaid(set)
+      if (!v) return // neither wallet can tell yet: ask again next run
+      if (valid) return this.pay(wallet, p, inv.bolt11, inv.paymentHash, set, true)
+      // Expired and the creator's wallet confirms it unpaid: safe to request a fresh invoice.
+      return void (await set({ status: 'pending', invoiceId: null }))
     }
 
     if (p.attempts >= MAX_ATTEMPTS) return void (await set({ status: 'failed' }))
@@ -169,48 +194,72 @@ export class SprinkleRoom extends DurableObject<Env> {
       return void (await set({ attempts, status: permanent || attempts >= MAX_ATTEMPTS ? 'failed' : 'pending', lastError: errText(e) }))
     }
     // Record the invoice before paying, so an interrupted run knows a payment may be in flight.
-    await set({ status: 'paying', invoiceId: inv.id, attempts: p.attempts + 1 })
-    await this.pay(client, { ...p, attempts: p.attempts + 1 }, inv.bolt11, inv.paymentHash, set)
+    await set({ status: 'paying', invoiceId: inv.id })
+    await this.pay(wallet, p, inv.bolt11, inv.paymentHash, set)
   }
 
   private async pay(
-    client: NwcClient,
+    wallet: NwcWallet,
     p: SprinklePayoutRow,
     bolt11: string,
     paymentHash: string,
-    set: (v: Partial<SprinklePayoutRow>) => Promise<unknown>,
-    /** Re-sending an invoice that was sent before: an error may just mean the first try is still in flight. */
+    set: SetPayout,
+    /** Re-sending without knowing the first try's outcome: an error may just mean it's still in flight. */
     resend = false,
   ): Promise<void> {
     try {
-      const { preimage } = await client.payInvoice(bolt11)
+      const { preimage } = await (await wallet.client()).payInvoice(bolt11)
       const bytes = hexToBytes(preimage)
       if (!bytes || (await sha256Hex(bytes)) !== paymentHash) {
-        // Wallet claims success with a bogus preimage: let the creator's verify URL decide next run.
-        console.warn('sprinkle: preimage mismatch', { payout: p.id })
-        return
+        // Wallet claims success with a bogus preimage: let the next check decide.
+        return void console.warn('sprinkle: preimage mismatch', { payout: p.id })
       }
-      await set({ status: 'paid', lastError: null })
+      await this.markPaid(set)
     } catch (e) {
       if (!(e instanceof NwcError)) throw e
-      // No answer: the payment may still complete. Stay "paying"; the next run checks the invoice.
-      if (e.ambiguous) return void (await set({ lastError: e.message }))
-      // The platform wallet can't pay at all: don't blame the project, back off the whole run.
-      if (WALLET_ERRORS.has(e.code)) {
-        await set({ lastError: e.message })
+      if (e.ambiguous) {
+        // No answer (relay dropped us, timeout): ask the wallet what happened, reconnecting if needed.
+        const state = await this.lookup(wallet, paymentHash, 3)
+        if (state === 'settled') return this.markPaid(set)
+        if (state !== 'failed') return void (await set({ lastError: e.message })) // in flight or unknown: look again shortly
+      } else if (WALLET_ERRORS.has(e.code)) {
+        // The platform wallet refused (nothing was sent): retry later with a fresh invoice, without
+        // counting it against the project, and back off the whole run.
+        await set({ status: 'pending', invoiceId: null, lastError: e.message })
         throw e
+      } else if (resend) {
+        return void (await set({ lastError: e.message }))
       }
-      // Keep the invoice until it expires and the creator's wallet confirms it unpaid.
-      if (resend) return void (await set({ lastError: e.message }))
       // Definite failure (e.g. no route): this invoice wasn't paid, so a new one is safe.
-      await set({ status: p.attempts >= MAX_ATTEMPTS ? 'failed' : 'pending', invoiceId: null, lastError: e.message })
+      const attempts = p.attempts + 1
+      await set({ attempts, status: attempts >= MAX_ATTEMPTS ? 'failed' : 'pending', invoiceId: null, lastError: e.message })
     }
+  }
+
+  private async markPaid(set: SetPayout): Promise<void> {
+    this.progressed = true
+    await set({ status: 'paid', lastError: null })
+  }
+
+  /** lookup_invoice on our wallet, retrying (on a fresh connection) after transport errors. */
+  private async lookup(wallet: NwcWallet, paymentHash: string, tries = 2): Promise<Lookup> {
+    for (let i = 0; i < tries; i++) {
+      try {
+        return (await (await wallet.client()).lookupInvoice(paymentHash)).state
+      } catch (e) {
+        if (e instanceof NwcError && e.code === 'NOT_FOUND') return 'none'
+        if (!(e instanceof NwcError) || !e.ambiguous) return 'unknown'
+        if (i < tries - 1) await sleep(1000)
+      }
+    }
+    return 'unknown'
   }
 
   private async finish(db: Db, s: SprinkleRow, reason: string): Promise<null> {
     const payouts = await this.payouts(db, s.id)
     const paidMsat = payouts.filter((p) => p.status === 'paid').reduce((sum, p) => sum + p.amountMsat, 0)
     await db.update(sprinkles).set({ status: 'done', completedAt: Date.now() }).where(eq(sprinkles.id, s.id))
+    this.progressed = true
     console.log('sprinkle: done', { sprinkle: s.id, reason, paidSats: msatToSats(paidMsat), keptSats: msatToSats(s.amountMsat - paidMsat) })
     return null
   }
