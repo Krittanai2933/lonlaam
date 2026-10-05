@@ -208,6 +208,7 @@ export class ProjectRoom extends DurableObject<Env> {
         .returning({
           id: invoices.id,
           supporterName: invoices.supporterName,
+          supporterPubkey: invoices.supporterPubkey,
           comment: invoices.comment,
           amountMsat: invoices.amountMsat,
           paidAt: invoices.paidAt,

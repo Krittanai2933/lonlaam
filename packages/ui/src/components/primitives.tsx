@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, ComponentProps, CSSProperties, ReactNode } from 'react'
-import { useId } from 'react'
+import { useId, useState } from 'react'
 import { Icon, type IconName } from './Icon'
 
 export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ')
@@ -337,9 +337,23 @@ export function StepList({
 // ─── Misc ─────────────────────────────────────────────────────────────────────
 
 /** Initial in a hairline circle. */
-export function Avatar({ name, size = 32, accent, className }: { name: string; size?: number; accent?: boolean; className?: string }) {
+export function Avatar({ name, src, size = 32, accent, className }: { name: string; src?: string | null; size?: number; accent?: boolean; className?: string }) {
   // Skip Thai leading vowels (เ แ โ ใ ไ) so "ไม่ระบุชื่อ" shows ม, not ไ.
   const initial = ([...name.trim()].find((c) => !/[\u0E40-\u0E44]/.test(c)) ?? '?').toUpperCase()
+  const [failed, setFailed] = useState<string | null>(null)
+  if (src && failed !== src)
+    return (
+      <img
+        aria-hidden
+        alt=""
+        src={src}
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => setFailed(src)}
+        className={cx('flex-none rounded-full border border-divider object-cover', className)}
+        style={{ width: size, height: size }}
+      />
+    )
   return (
     <span
       aria-hidden

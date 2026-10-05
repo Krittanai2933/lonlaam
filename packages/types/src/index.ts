@@ -98,6 +98,13 @@ export type SessionToken = string
 /** NIP-42 client authentication kind. */
 export const NOSTR_AUTH_KIND = 22242
 
+/**
+ * NIP-98 HTTP auth kind, used as the optional supporter proof on POST /api/p/:slug/invoices:
+ * tags [['u', <absolute URL of that endpoint>], ['method', 'POST']], content ''. Signed when the
+ * supporter picks "use my Nostr name", so it may be up to 10 minutes old (NIP-98 suggests 60s).
+ */
+export const NOSTR_HTTP_AUTH_KIND = 27235
+
 export interface NostrEvent {
   id: string
   pubkey: string
@@ -360,6 +367,8 @@ export interface ProjectStatsResponse {
 export interface Supporter {
   invoiceId: string
   name: string | null
+  /** Hex pubkey the supporter proved with a signature, for showing their Nostr profile. */
+  pubkey: string | null
   comment: string | null
   amountSats: number
   paidAt: number
@@ -396,6 +405,8 @@ export interface CreateInvoiceRequest {
   amountSats: number
   supporterName?: string
   comment?: string
+  /** NOSTR_HTTP_AUTH_KIND event. An invalid or stale proof is ignored, not rejected. */
+  nostrProof?: NostrEvent
 }
 
 export interface Invoice {

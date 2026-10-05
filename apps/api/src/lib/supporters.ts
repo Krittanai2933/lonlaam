@@ -40,6 +40,7 @@ export function supporterRows(db: Db, projectId: string, query: SupporterQuery, 
     .select({
       id: invoices.id,
       supporterName: invoices.supporterName,
+      supporterPubkey: invoices.supporterPubkey,
       comment: invoices.comment,
       amountMsat: invoices.amountMsat,
       paidAt: invoices.paidAt,

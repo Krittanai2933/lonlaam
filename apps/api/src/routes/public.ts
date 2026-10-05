@@ -5,10 +5,11 @@ import { and, desc, eq, ne } from 'drizzle-orm'
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 import * as v from 'valibot'
-import { type AppEnv, type Db, mediaBase } from '../context'
+import { type AppEnv, type Db, mediaBase, publicOrigin } from '../context'
 import { creators, invoices, projects } from '../db/schema'
 import { ApiError, notFound } from '../lib/errors'
-import { json } from '../lib/validate'
+import { nip98Pubkey } from '../lib/signatures'
+import { json, nostrEventSchema } from '../lib/validate'
 import { createProjectInvoice, roomFor } from '../lib/project-invoice'
 import { pageLimit, supporterPage } from '../lib/supporters'
 import { clampLimit, LEADERBOARD_LIMIT } from '../lib/discover'
@@ -18,6 +19,7 @@ const createInvoiceBody = v.object({
   amountSats: v.pipe(v.number(), v.safeInteger(), v.minValue(LIMITS.invoiceSats.min), v.maxValue(LIMITS.invoiceSats.max)),
   supporterName: v.optional(v.pipe(v.string(), v.trim(), v.maxLength(LIMITS.supporterName.max))),
   comment: v.optional(v.pipe(v.string(), v.trim(), v.maxLength(LIMITS.comment.max))),
+  nostrProof: v.optional(nostrEventSchema),
 })
 
 /** Public projects are active or closed; drafts are invisible. */
@@ -51,6 +53,7 @@ function leaderRows(db: Db, projectId: string, limit: number) {
     .select({
       id: invoices.id,
       supporterName: invoices.supporterName,
+      supporterPubkey: invoices.supporterPubkey,
       comment: invoices.comment,
       amountMsat: invoices.amountMsat,
       paidAt: invoices.paidAt,
@@ -98,7 +101,12 @@ export const publicRoutes = new Hono<AppEnv>()
       throw new ApiError(409, 'project_not_active', 'this project is not accepting payments')
     }
     if (!creator.lightningAddress) throw new ApiError(409, 'lightning_address_missing', 'creator has no Lightning Address')
-    const row = await createProjectInvoice(c.env, c.var.db, project.id, creator.lightningAddress, body)
+    // The proof only adds a profile picture/name; a bad one never blocks a payment.
+    const { nostrProof, ...input } = body
+    const supporterPubkey = nostrProof
+      ? await nip98Pubkey(nostrProof, `${publicOrigin(c.env, c.req.url)}/api/p/${project.slug}/invoices`, 'POST')
+      : null
+    const row = await createProjectInvoice(c.env, c.var.db, project.id, creator.lightningAddress, { ...input, supporterPubkey })
     return c.json(toInvoice(row) satisfies CreateInvoiceResponse, 201)
   })
 
