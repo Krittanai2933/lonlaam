@@ -122,7 +122,7 @@ export class SprinkleRoom extends DurableObject<Env> {
     const open = (p: SprinklePayoutRow) => p.status === 'pending' || p.status === 'paying'
     const live = payouts.filter((p) => p.status !== 'failed')
     if (live.length < s.projectCount) {
-      const picked = await pickProjects(db, s.projectCount - live.length, payouts.map((p) => p.projectId))
+      const picked = await pickProjects(db, s.projectCount - live.length, payouts.map((p) => p.projectId), s.excludeFunded)
       if (picked.length) {
         await db.insert(sprinklePayouts).values(picked.map((projectId) => ({ id: newId(), sprinkleId: s.id, projectId, amountMsat: s.perProjectMsat })))
         payouts = await this.payouts(db, s.id)

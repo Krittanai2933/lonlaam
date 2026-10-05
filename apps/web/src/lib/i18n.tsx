@@ -191,6 +191,8 @@ const th = {
   sprReplaced: 'ส่งไม่สำเร็จ สุ่มโปรเจกต์อื่นแทน',
   sprShort: 'บางส่วนส่งไม่สำเร็จ ยอดที่เหลือยังอยู่ในกระเป๋าของล้นหลาม',
   sprAgain: 'สุ่มอีกครั้ง',
+  sprExcludeFunded: 'ไม่รวมโปรเจกต์ที่ถึงเป้าแล้ว',
+  sprNoneUnfunded: 'ตอนนี้ทุกโปรเจกต์ถึงเป้าแล้ว ปิดตัวเลือกนี้เพื่อสุ่มจากทุกโปรเจกต์',
   sprMore: 'ดูอีก {n} โปรเจกต์',
   sprLess: 'ย่อลง',
 
@@ -430,6 +432,8 @@ const en: Dict = {
   sprReplaced: 'Couldn’t deliver, picked another project',
   sprShort: 'Some sats couldn’t be delivered and are still in Lonlaam’s wallet',
   sprAgain: 'Sprinkle again',
+  sprExcludeFunded: 'Skip projects that reached their goal',
+  sprNoneUnfunded: 'Every project has reached its goal. Turn this off to pick from all of them.',
   sprMore: 'Show {n} more',
   sprLess: 'Show less',
 

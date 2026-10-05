@@ -481,6 +481,25 @@ step('closed project rejects invoices')
   assert.ok(dropped.ms < 10_000, `recovery from a dropped relay took ${dropped.ms}ms`)
   step(`sprinkle: failed payout retried (${noRoute.ms}ms), dropped relay answer recovered (${dropped.ms}ms)`)
 
+  // excludeFunded: only projects still short of their goal (or without one) get picked.
+  {
+    const c = (await call('GET', '/api/sprinkles/config')).json
+    assert.ok(c.eligibleUnfunded >= 1 && c.eligibleUnfunded <= c.eligibleProjects, JSON.stringify(c))
+    if (c.eligibleUnfunded < c.eligibleProjects && c.eligibleUnfunded < 10) {
+      const tooMany = await call('POST', '/api/sprinkles', { body: { amountSats: 21_000, projectCount: c.eligibleUnfunded + 1, excludeFunded: true } })
+      assert.equal(tooMany.json.error.code, 'not_enough_projects')
+    }
+    const n = Math.min(c.eligibleUnfunded, 3)
+    const { s } = await sprinkle([], { amountSats: 1000, projectCount: n, excludeFunded: true })
+    assert.equal(s.excludeFunded, true)
+    for (const p of s.payouts) {
+      const proj = (await call('GET', `/api/p/${p.slug}`)).json
+      // Before this payout it was below the goal.
+      assert.ok(proj.goalSats === null || proj.raisedSats - p.amountSats < proj.goalSats, `${p.slug} was already funded`)
+    }
+    step(`sprinkle: excludeFunded picks only projects short of their goal (${c.eligibleUnfunded}/${c.eligibleProjects} eligible)`)
+  }
+
   // Platform wallet can't pay (balance): wait and retry without burning the project's attempts.
   const broke = await sprinkle(['fail-next?code=INSUFFICIENT_BALANCE'], { amountSats: 300, projectCount: 1 })
   assert.ok(broke.ms >= 9000, `expected a ~10s backoff, took ${broke.ms}ms`)

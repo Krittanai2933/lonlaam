@@ -122,6 +122,8 @@ export const sprinkles = sqliteTable(
     amountMsat: integer('amount_msat').notNull(),
     projectCount: integer('project_count').notNull(),
     perProjectMsat: integer('per_project_msat').notNull(),
+    /** Only pick projects still short of their goal. */
+    excludeFunded: integer('exclude_funded', { mode: 'boolean' }).notNull().default(false),
     supporterName: text('supporter_name'),
     comment: text('comment'),
     /** Invoice from the platform wallet (NWC make_invoice). */

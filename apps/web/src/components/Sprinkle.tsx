@@ -1,6 +1,6 @@
-import type { Sprinkle } from '@nampu/types'
+import type { Sprinkle, SprinkleConfigResponse } from '@nampu/types'
 import { LIMITS, SPRINKLE, sprinkleShare } from '@nampu/types'
-import { Button, Chip, CopyButton, cx, Dialog, Icon, Input, Notice, Pulse, QRCode, Spinner } from '@nampu/ui'
+import { Button, Chip, CopyButton, cx, Dialog, Icon, Input, Notice, Pulse, QRCode, Spinner, Switch } from '@nampu/ui'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
@@ -26,11 +26,10 @@ const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(pre
 export function SprinkleSection({ desktop }: { desktop: boolean }) {
   const { t } = useI18n()
   const config = useQuery({ queryKey: ['sprinkle-config'], queryFn: api.sprinkleConfig, staleTime: 60_000 })
-  const maxProjects = Math.min(SPRINKLE.projects.max, config.data?.eligibleProjects ?? 0)
-  const flow = useSprinkle(maxProjects)
+  const flow = useSprinkle(config.data)
   const [open, setOpen] = useState(false)
 
-  if (!config.data?.enabled || maxProjects < 1) return null
+  if (!config.data?.enabled || config.data.eligibleProjects < 1) return null
 
   const s = flow.sprinkle
   const cta = s?.status === 'pending' ? t.sprResumePay : s?.status === 'distributing' ? t.sprResume : t.sprGo
@@ -70,10 +69,13 @@ export function SprinkleSection({ desktop }: { desktop: boolean }) {
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
-function useSprinkle(maxProjects: number) {
+function useSprinkle(config: SprinkleConfigResponse | undefined) {
   const { t } = useI18n()
   const [amount, setAmount] = useState(1000)
   const [count, setCount] = useState(3)
+  // On by default: sats go to projects that still need them first.
+  const [excludeFunded, setExcludeFunded] = useState(true)
+  const maxProjects = Math.min(SPRINKLE.projects.max, (excludeFunded ? config?.eligibleUnfunded : config?.eligibleProjects) ?? 0)
   const [name, setName] = useState('')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
@@ -110,6 +112,7 @@ function useSprinkle(maxProjects: number) {
       const s = await api.createSprinkle({
         amountSats: amount,
         projectCount: projects,
+        excludeFunded,
         ...(name.trim() && { supporterName: name.trim() }),
         ...(message.trim() && { comment: message.trim() }),
       })
@@ -124,6 +127,8 @@ function useSprinkle(maxProjects: number) {
 
   return {
     maxProjects,
+    excludeFunded,
+    setExcludeFunded,
     amount,
     setAmount,
     projects,
@@ -212,6 +217,8 @@ function Form({ flow: f, desktop }: { flow: Flow; desktop: boolean }) {
           </Chip>
         ))}
       </div>
+      <Switch className="-my-1" icon="target" label={t.sprExcludeFunded} checked={f.excludeFunded} onChange={f.setExcludeFunded} />
+      {f.maxProjects < 1 && <Notice>{t.sprNoneUnfunded}</Notice>}
       <div>
         <div className="mb-1.5 text-[13px] text-neutral-700">{t.sprProjects}</div>
         <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label={t.sprProjects}>
@@ -236,7 +243,7 @@ function Form({ flow: f, desktop }: { flow: Flow; desktop: boolean }) {
       <Input className="min-h-11" aria-label={t.namePh} placeholder={t.namePh} maxLength={LIMITS.supporterName.max} value={f.name} onChange={(e) => f.setName(e.target.value)} />
       <Input className="min-h-11" aria-label={t.msgPh} placeholder={t.msgPh} maxLength={LIMITS.comment.max} value={f.message} onChange={(e) => f.setMessage(e.target.value)} />
       {f.error && <Notice tone="danger">{f.error}</Notice>}
-      <Button variant="cta" icon="gift" className="h-12 text-base" loading={f.busy} disabled={!amountOk || tooSmall || f.busy} onClick={() => void f.create()}>
+      <Button variant="cta" icon="gift" className="h-12 text-base" loading={f.busy} disabled={!amountOk || tooSmall || f.busy || f.maxProjects < 1} onClick={() => void f.create()}>
         {t.sprGo}
       </Button>
       <p className="m-0 text-xs text-neutral-600">{t.sprCustodial.replace('{fee}', String(SPRINKLE.feeReservePercent))}</p>
