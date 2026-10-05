@@ -3,6 +3,20 @@ import { marked } from 'marked'
 import { useMemo } from 'react'
 
 marked.setOptions({ gfm: true, breaks: true })
+// Creators indent paragraphs with spaces/tabs; CommonMark would turn those into unwrapped code
+// blocks that overflow the story columns. Render indented "code" as ordinary paragraphs instead
+// (fenced ``` blocks are still code).
+marked.use({
+  renderer: {
+    code(token) {
+      if (token.codeBlockStyle !== 'indented') return false
+      return token.text
+        .split(/\n\s*\n/)
+        .map((para) => `<p>${marked.parseInline(para, { async: false })}</p>`)
+        .join('')
+    },
+  },
+})
 
 /** Creator-written story: Markdown → sanitized HTML (no scripts, styles or iframes). */
 export function Markdown({ source, className, style }: { source: string; className?: string; style?: React.CSSProperties }) {
