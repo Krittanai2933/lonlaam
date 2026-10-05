@@ -62,6 +62,10 @@ export type ErrorCode =
   | 'goal_below_raised'
   /** Project is a draft, closed, or past its end date. */
   | 'project_not_active'
+  /** Sprinkle is switched off (no platform wallet configured) or the wallet is unreachable. */
+  | 'sprinkle_unavailable'
+  /** Fewer projects are accepting payments than the sprinkle asked for. */
+  | 'not_enough_projects'
   | 'internal'
 
 export interface ApiErrorBody {
@@ -409,6 +413,67 @@ export type CreateInvoiceResponse = Invoice
 
 /** GET /api/invoices/:id — polling fallback for clients without WebSocket. */
 export type GetInvoiceResponse = Invoice
+
+// ─── Sprinkle (one payment, split across random projects) ──────────────────────
+//
+// Unlike project invoices this flow is custodial for a few seconds: the supporter pays the
+// platform's wallet (NWC), which then pays an invoice from each chosen creator's Lightning
+// Address. Each payout shows up as a normal supporter payment on that project.
+
+export const SPRINKLE = {
+  amountSats: { min: 21, max: 21_000 },
+  projects: { min: 1, max: 10 },
+  minSatsPerProject: 21,
+  /** Kept back from the total to pay Lightning routing fees on the payouts. */
+  feeReservePercent: 2,
+} as const
+
+/** Sats each project receives (equal split after the fee reserve, rounded down). */
+export const sprinkleShare = (amountSats: number, projectCount: number) =>
+  Math.floor((amountSats * (100 - SPRINKLE.feeReservePercent)) / 100 / projectCount)
+
+/** GET /api/sprinkles/config */
+export interface SprinkleConfigResponse {
+  enabled: boolean
+  /** Projects a sprinkle can currently pay (caps projectCount). */
+  eligibleProjects: number
+}
+
+/** POST /api/sprinkles */
+export interface CreateSprinkleRequest {
+  amountSats: number
+  projectCount: number
+  supporterName?: string
+  comment?: string
+}
+
+/** pending: waiting for the supporter's payment · distributing: paying projects · done · expired: never paid */
+export type SprinkleStatus = 'pending' | 'distributing' | 'done' | 'expired'
+export type SprinklePayoutStatus = 'pending' | 'paid' | 'failed'
+
+export interface SprinklePayout {
+  slug: string
+  title: string
+  amountSats: number
+  status: SprinklePayoutStatus
+}
+
+export interface Sprinkle {
+  id: string
+  amountSats: number
+  projectCount: number
+  perProjectSats: number
+  bolt11: string
+  status: SprinkleStatus
+  createdAt: number
+  expiresAt: number
+  paidAt: number | null
+  /** Projects picked so far (filled once the payment arrives); failed ones are replaced. */
+  payouts: SprinklePayout[]
+}
+export type CreateSprinkleResponse = Sprinkle
+/** GET /api/sprinkles/:id */
+export type GetSprinkleResponse = Sprinkle
 
 // ─── Real-time (WebSocket) ────────────────────────────────────────────────────
 //

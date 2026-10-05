@@ -1,6 +1,10 @@
 import type {
   ApiErrorBody,
   CreateInvoiceRequest,
+  CreateSprinkleRequest,
+  CreateSprinkleResponse,
+  GetSprinkleResponse,
+  SprinkleConfigResponse,
   CreateInvoiceResponse,
   GetInvoiceResponse,
   GetPublicProjectResponse,
@@ -114,6 +118,9 @@ export const api = {
   createInvoice: (slug: string, body: CreateInvoiceRequest) =>
     request<CreateInvoiceResponse>('POST', `/api/p/${encodeURIComponent(slug)}/invoices`, { body }),
   invoice: (id: string) => request<GetInvoiceResponse>('GET', `/api/invoices/${id}`),
+  sprinkleConfig: () => request<SprinkleConfigResponse>('GET', '/api/sprinkles/config'),
+  createSprinkle: (body: CreateSprinkleRequest) => request<CreateSprinkleResponse>('POST', '/api/sprinkles', { body }),
+  sprinkle: (id: string) => request<GetSprinkleResponse>('GET', `/api/sprinkles/${id}`),
 
   // creator
   me: () => request<GetMeResponse>('GET', '/api/me'),

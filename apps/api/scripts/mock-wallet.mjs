@@ -3,7 +3,17 @@
 //   legacy@localhost:<port>  → no `verify` URL (should be rejected by the API)
 // Test controls: POST /pay/<paymentHash> settles an invoice; GET /last returns the latest one;
 // POST /fail-next makes the next invoice request fail (simulates an unreachable node).
+//
+// Also the platform wallet for sprinkles: a tiny Nostr relay on :<port+1> that answers NIP-47
+// (NWC) requests itself. Its connection string is MOCK_NWC_URL below (wrangler.jsonc env.dev).
+// Controls: GET /nwc/last (latest make_invoice), POST /pay/<hash> settles it like any invoice,
+// GET /nwc/payments lists pay_invoice calls, POST /nwc/fail-next fails the next pay_invoice.
+import { createHash } from 'node:crypto'
 import { createServer } from 'node:http'
+import * as nip04 from 'nostr-tools/nip04'
+import * as nip44 from 'nostr-tools/nip44'
+import { finalizeEvent, getPublicKey } from 'nostr-tools/pure'
+import { WebSocketServer } from 'ws'
 import { encodeBolt11, newPreimage } from '../test/fixtures/bolt11-encode.mjs'
 
 const port = Number(process.env.MOCK_WALLET_PORT ?? 8790)
@@ -11,6 +21,98 @@ const base = `http://localhost:${port}`
 const invoices = new Map() // paymentHash → { preimage, pr, settled }
 let last = null
 let failNext = false
+
+// ─── NWC (platform wallet) ────────────────────────────────────────────────────
+
+const relayPort = port + 1
+// Fixed test keys: the client secret is public on purpose (it only controls this mock).
+const walletSk = createHash('sha256').update('nampu-mock-nwc-wallet').digest()
+const walletPk = getPublicKey(walletSk)
+const clientSk = createHash('sha256').update('nampu-mock-nwc-client').digest('hex')
+console.log(`[mock-wallet] NWC: nostr+walletconnect://${walletPk}?relay=ws://localhost:${relayPort}&secret=${clientSk}`)
+let lastNwc = null
+let nwcFailNext = false
+const nwcPayments = [] // { paymentHash, ok, error? }
+
+function nwcHandle(method, params) {
+  if (method === 'make_invoice') {
+    const { preimage, paymentHash } = newPreimage()
+    const expiry = params.expiry ?? 600
+    const pr = encodeBolt11({ amountMsat: params.amount, paymentHash, expiry })
+    invoices.set(paymentHash, { preimage, pr, settled: false })
+    lastNwc = { paymentHash, pr, amountMsat: params.amount }
+    const now = Math.floor(Date.now() / 1000)
+    return { type: 'incoming', invoice: pr, payment_hash: paymentHash, amount: params.amount, created_at: now, expires_at: now + expiry }
+  }
+  if (method === 'lookup_invoice') {
+    const inv = invoices.get(params.payment_hash)
+    if (!inv) throw { code: 'NOT_FOUND', message: 'invoice not found' }
+    return { type: 'incoming', invoice: inv.pr, payment_hash: params.payment_hash, ...(inv.settled && { settled_at: Math.floor(Date.now() / 1000), preimage: inv.preimage }) }
+  }
+  if (method === 'pay_invoice') {
+    const entry = [...invoices.entries()].find(([, v]) => v.pr === params.invoice)
+    const paymentHash = entry?.[0] ?? null
+    const fail = (message) => {
+      nwcPayments.push({ paymentHash, ok: false, error: message })
+      throw { code: 'PAYMENT_FAILED', message }
+    }
+    if (nwcFailNext) {
+      nwcFailNext = false
+      fail('no route (simulated)')
+    }
+    if (!entry) fail('unknown invoice')
+    if (entry[1].settled) fail('invoice already paid')
+    entry[1].settled = true
+    nwcPayments.push({ paymentHash, ok: true })
+    return { preimage: entry[1].preimage, fees_paid: 0 }
+  }
+  throw { code: 'NOT_IMPLEMENTED', message: `unknown method ${method}` }
+}
+
+const subs = new Map() // ws → Map(subId → filter)
+const matches = (f, ev) =>
+  (!f.kinds || f.kinds.includes(ev.kind)) &&
+  (!f.authors || f.authors.includes(ev.pubkey)) &&
+  (!f['#e'] || ev.tags.some((t) => t[0] === 'e' && f['#e'].includes(t[1])))
+const publish = (ev) => {
+  for (const [ws, m] of subs) for (const [id, f] of m) if (matches(f, ev)) ws.send(JSON.stringify(['EVENT', id, ev]))
+}
+const infoEvent = finalizeEvent({ kind: 13194, created_at: Math.floor(Date.now() / 1000), tags: [['encryption', 'nip44_v2 nip04']], content: 'pay_invoice make_invoice lookup_invoice' }, walletSk)
+
+new WebSocketServer({ port: relayPort }).on('connection', (ws) => {
+  subs.set(ws, new Map())
+  ws.on('close', () => subs.delete(ws))
+  ws.on('message', (raw) => {
+    let msg
+    try {
+      msg = JSON.parse(String(raw))
+    } catch {
+      return
+    }
+    const [type, a, b] = msg
+    if (type === 'REQ') {
+      subs.get(ws).set(a, b)
+      if (matches(b, infoEvent)) ws.send(JSON.stringify(['EVENT', a, infoEvent]))
+      ws.send(JSON.stringify(['EOSE', a]))
+    } else if (type === 'CLOSE') {
+      subs.get(ws).delete(a)
+    } else if (type === 'EVENT') {
+      ws.send(JSON.stringify(['OK', a.id, true, '']))
+      if (a.kind !== 23194 || !a.tags.some((t) => t[0] === 'p' && t[1] === walletPk)) return
+      const v04 = a.content.includes('?iv=')
+      const decrypt = (c) => (v04 ? nip04.decrypt(walletSk, a.pubkey, c) : nip44.decrypt(c, nip44.getConversationKey(walletSk, a.pubkey)))
+      const encrypt = (t) => (v04 ? nip04.encrypt(walletSk, a.pubkey, t) : nip44.encrypt(t, nip44.getConversationKey(walletSk, a.pubkey)))
+      const { method, params } = JSON.parse(decrypt(a.content))
+      let body
+      try {
+        body = { result_type: method, error: null, result: nwcHandle(method, params ?? {}) }
+      } catch (e) {
+        body = { result_type: method, error: { code: e.code ?? 'INTERNAL', message: e.message ?? String(e) }, result: null }
+      }
+      publish(finalizeEvent({ kind: 23195, created_at: Math.floor(Date.now() / 1000), tags: [['p', a.pubkey], ['e', a.id]], content: encrypt(JSON.stringify(body)) }, walletSk))
+    }
+  })
+})
 
 const send = (res, status, body) => {
   res.writeHead(status, { 'content-type': 'application/json' })
@@ -55,6 +157,12 @@ createServer((req, res) => {
     return send(res, 200, { ok: true })
   }
   if (req.method === 'GET' && a === 'last') return send(res, 200, last)
+  if (a === 'nwc' && req.method === 'GET' && b === 'last') return send(res, 200, lastNwc)
+  if (a === 'nwc' && req.method === 'GET' && b === 'payments') return send(res, 200, nwcPayments)
+  if (a === 'nwc' && req.method === 'POST' && b === 'fail-next') {
+    nwcFailNext = true
+    return send(res, 200, { ok: true })
+  }
   if (req.method === 'POST' && a === 'fail-next') {
     failNext = true
     return send(res, 200, { ok: true })

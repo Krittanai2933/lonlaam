@@ -47,11 +47,15 @@
   ],
 
   "durable_objects": {
-    "bindings": [{ "name": "PROJECT_ROOM", "class_name": "ProjectRoom" }]
+    "bindings": [
+      { "name": "PROJECT_ROOM", "class_name": "ProjectRoom" },
+      { "name": "SPRINKLE_ROOM", "class_name": "SprinkleRoom" }
+    ]
   },
   "migrations": [
     // SQLite-backed Durable Objects are the only kind available on the Free plan.
-    { "tag": "v1", "new_sqlite_classes": ["ProjectRoom"] }
+    { "tag": "v1", "new_sqlite_classes": ["ProjectRoom"] },
+    { "tag": "v2", "new_sqlite_classes": ["SprinkleRoom"] }
   ],
 
   "ratelimits": [
@@ -80,7 +84,15 @@
   "env": {
     // wrangler dev --env dev (also used by the local smoke test)
     "dev": {
-      "vars": { "PUBLIC_ORIGIN": "", "MEDIA_ORIGIN": "", "SITE_NAME": "ล้นหลาม (dev)", "ALLOW_INSECURE_LNURL": "true" },
+      "vars": {
+        "PUBLIC_ORIGIN": "",
+        "MEDIA_ORIGIN": "",
+        "SITE_NAME": "ล้นหลาม (dev)",
+        "ALLOW_INSECURE_LNURL": "true",
+        // Sprinkle wallet = the mock NWC relay in scripts/mock-wallet.mjs (fixed test keys).
+        // Production sets it as a secret: wrangler secret put NWC_URL
+        "NWC_URL": "nostr+walletconnect://ebdda12636f35f00fe588fbcf77fa6f763ea4a88eaa1fcd6d51fc31d4fd334d5?relay=ws://localhost:8791&secret=a5dc994f93583db22acc96d86081ae48061d293f0aafd12d3692c5ab5aa5b3ad"
+      },
       // No production routes locally: wrangler dev would rewrite request.url to lonlaam.com,
       // breaking the Nostr relay / LNURL host checks against localhost.
       "routes": [],
@@ -94,7 +106,10 @@
       ],
       "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "nampu-media" }],
       "durable_objects": {
-        "bindings": [{ "name": "PROJECT_ROOM", "class_name": "ProjectRoom" }]
+        "bindings": [
+          { "name": "PROJECT_ROOM", "class_name": "ProjectRoom" },
+          { "name": "SPRINKLE_ROOM", "class_name": "SprinkleRoom" }
+        ]
       },
       // Local limits: generous where smoke/e2e/seed scripts create lots of data from one IP;
       // RL_WRITE keeps the production value so the smoke test can exercise a real 429.

@@ -15,3 +15,18 @@
 .np-prose ol { list-style: decimal; }
 .np-prose li::marker { color: var(--color-accent); }
 .np-prose pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Sprinkle reveal: face-down cards flip over one by one. */
+.np-flip { perspective: 900px; }
+.np-flip-inner { position: relative; height: 100%; transform-style: preserve-3d; transition: transform 0.7s cubic-bezier(0.2, 0.8, 0.25, 1.15); }
+.np-flip.is-open .np-flip-inner { transform: rotateY(180deg); }
+.np-flip-face { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.np-flip-front { transform: rotateY(180deg); }
+.np-flip.is-open { animation: np-pop 0.5s ease-out 0.3s; }
+@keyframes np-pop { 50% { transform: scale(1.05); } }
+.np-deal { animation: np-deal 0.45s cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+@keyframes np-deal { from { opacity: 0; transform: translateY(14px) scale(0.92); } }
+@media (prefers-reduced-motion: reduce) {
+  .np-flip-inner { transition: none; }
+  .np-flip.is-open, .np-deal { animation: none; }
+}

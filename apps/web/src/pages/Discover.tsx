@@ -5,6 +5,7 @@ import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-qu
 import { useDeferredValue, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { HowItWorks, MobileTabBar, PublicNav, SupportLonlaam } from '../components/PublicChrome'
+import { SprinkleSection } from '../components/Sprinkle'
 import { api } from '../lib/api'
 import { daysLeft, fmt, short } from '../lib/format'
 import { useIsDesktop } from '../lib/hooks'
@@ -148,6 +149,7 @@ function MobileDiscover({ cat, setCat, search, setSearch, q, list }: ViewProps) 
           ))}
           <LoadMore list={list} />
         </div>
+        <SprinkleSection desktop={false} />
         <HowItWorks desktop={false} />
         <SupportLonlaam desktop={false} />
       </div>
@@ -267,6 +269,7 @@ function DesktopDiscover({ cat, setCat, sort, setSort, search, setSearch, q, lis
         )}
         <LoadMore list={list} />
       </div>
+      <SprinkleSection desktop />
       <HowItWorks desktop />
       <SupportLonlaam desktop />
     </div>
