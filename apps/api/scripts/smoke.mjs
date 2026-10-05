@@ -434,31 +434,34 @@ step('closed project rejects invoices')
     assert.equal(tooMany.json.error.code, 'not_enough_projects')
   }
 
-  const created = await call('POST', '/api/sprinkles', { body: { amountSats: 1000, projectCount: 2, supporterName: 'Sprinkler', comment: 'sprinkle!' } })
-  assert.equal(created.status, 201, JSON.stringify(created.json))
-  assert.equal(created.json.status, 'pending')
-  assert.equal(created.json.perProjectSats, 490)
-  const nwcInvoice = await (await fetch(`${WALLET}/nwc/last`)).json()
-  assert.equal(nwcInvoice.pr, created.json.bolt11)
-  // The first payout attempt fails (no route): it must be retried with a fresh invoice.
-  await fetch(`${WALLET}/nwc/fail-next`, { method: 'POST' })
-  await fetch(`${WALLET}/pay/${nwcInvoice.paymentHash}`, { method: 'POST' })
-
-  let s
-  const t0 = Date.now()
-  for (;;) {
-    s = (await call('GET', `/api/sprinkles/${created.json.id}`)).json
-    if (s.status === 'done' || Date.now() - t0 > 30_000) break
-    await sleep(500)
+  // Creates a sprinkle, arms the given wallet faults, pays it, and waits until it's done.
+  const sprinkle = async (faults, body) => {
+    const created = await call('POST', '/api/sprinkles', { body })
+    assert.equal(created.status, 201, JSON.stringify(created.json))
+    assert.equal(created.json.status, 'pending')
+    const nwcInvoice = await (await fetch(`${WALLET}/nwc/last`)).json()
+    assert.equal(nwcInvoice.pr, created.json.bolt11)
+    for (const f of faults) await fetch(`${WALLET}/nwc/${f}`, { method: 'POST' })
+    await fetch(`${WALLET}/pay/${nwcInvoice.paymentHash}`, { method: 'POST' })
+    let s
+    const t0 = Date.now()
+    for (;;) {
+      s = (await call('GET', `/api/sprinkles/${created.json.id}`)).json
+      if (s.status === 'done' || Date.now() - t0 > 45_000) break
+      await sleep(250)
+    }
+    assert.equal(s.status, 'done', JSON.stringify(s))
+    assert.equal(s.payouts.length, body.projectCount, JSON.stringify(s.payouts))
+    assert.ok(s.payouts.every((p) => p.status === 'paid' && p.amountSats === s.perProjectSats), JSON.stringify(s.payouts))
+    return { s, ms: Date.now() - t0 }
   }
-  assert.equal(s.status, 'done', JSON.stringify(s))
-  assert.equal(s.payouts.length, 2)
-  assert.ok(s.payouts.every((p) => p.status === 'paid' && p.amountSats === 490))
-  const payments = await (await fetch(`${WALLET}/nwc/payments`)).json()
-  assert.ok(payments.some((p) => !p.ok), 'expected the simulated failure')
 
+  // Happy path, timed: payouts go out concurrently.
+  const fast = await sprinkle([], { amountSats: 1000, projectCount: 2, supporterName: 'Sprinkler', comment: 'sprinkle!' })
+  assert.equal(fast.s.perProjectSats, 490)
+  assert.ok(fast.ms < 8000, `sprinkle took ${fast.ms}ms`)
   // Each payout lands as an ordinary supporter payment on its project.
-  for (const p of s.payouts) {
+  for (const p of fast.s.payouts) {
     let found = null
     for (let i = 0; i < 40 && !found; i++) {
       found = (await call('GET', `/api/p/${p.slug}/supporters`)).json.supporters.find((x) => x.name === 'Sprinkler' && x.amountSats === 490)
@@ -467,7 +470,21 @@ step('closed project rejects invoices')
     assert.ok(found, `payout to ${p.slug} not visible as a supporter`)
     assert.equal(found.comment, 'sprinkle!')
   }
-  step(`sprinkle: NWC invoice → paid → split across 2 random projects in ${Date.now() - t0}ms, failed payout retried`)
+  step(`sprinkle: NWC invoice → paid → split across 2 random projects in ${fast.ms}ms, each a supporter payment`)
+
+  // No route: the payout is retried with a fresh invoice.
+  const noRoute = await sprinkle(['fail-next'], { amountSats: 500, projectCount: 2 })
+  const payments = await (await fetch(`${WALLET}/nwc/payments`)).json()
+  assert.ok(payments.some((p) => !p.ok && /no route/.test(p.error)), 'expected the simulated failure')
+  // Relay drops the socket after paying: lookup_invoice on a new connection finds it settled, quickly.
+  const dropped = await sprinkle(['drop-next'], { amountSats: 500, projectCount: 2 })
+  assert.ok(dropped.ms < 10_000, `recovery from a dropped relay took ${dropped.ms}ms`)
+  step(`sprinkle: failed payout retried (${noRoute.ms}ms), dropped relay answer recovered (${dropped.ms}ms)`)
+
+  // Platform wallet can't pay (balance): wait and retry without burning the project's attempts.
+  const broke = await sprinkle(['fail-next?code=INSUFFICIENT_BALANCE'], { amountSats: 300, projectCount: 1 })
+  assert.ok(broke.ms >= 9000, `expected a ~10s backoff, took ${broke.ms}ms`)
+  step(`sprinkle: wallet out of balance → backed off, then paid (${broke.ms}ms)`)
 }
 
 // Rate limiting: RL_WRITE keeps its production limit (30/min per creator) in --env dev.

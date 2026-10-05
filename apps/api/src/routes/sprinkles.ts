@@ -6,7 +6,7 @@ import * as v from 'valibot'
 import type { AppEnv } from '../context'
 import { isUniqueViolation } from '../db/errors'
 import { sprinkles } from '../db/schema'
-import { NwcClient, NwcError } from '../lightning/nwc'
+import { NwcError, NwcWallet } from '../lightning/nwc'
 import { ApiError, notFound } from '../lib/errors'
 import { rateLimit } from '../lib/ratelimit'
 import { countEligible, nwcConnection, toSprinkle } from '../lib/sprinkle'
@@ -47,15 +47,14 @@ export const sprinkleRoutes = new Hono<AppEnv>()
     }
 
     let invoice
-    let client: NwcClient | null = null
+    const wallet = new NwcWallet(conn)
     try {
-      client = await NwcClient.connect(conn)
-      invoice = await client.makeInvoice(body.amountSats * 1000, `${c.env.SITE_NAME} · sprinkle to ${body.projectCount} projects`, INVOICE_EXPIRY_S)
+      invoice = await (await wallet.client()).makeInvoice(body.amountSats * 1000, `${c.env.SITE_NAME} · sprinkle to ${body.projectCount} projects`, INVOICE_EXPIRY_S)
     } catch (e) {
       console.error('sprinkle: make_invoice failed', e instanceof NwcError ? `${e.code}: ${e.message}` : e)
       throw unavailable()
     } finally {
-      client?.close()
+      wallet.close()
     }
 
     const now = Date.now()

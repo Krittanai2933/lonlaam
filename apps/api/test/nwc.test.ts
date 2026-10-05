@@ -9,8 +9,13 @@ describe('parseNwcUrl', () => {
   it('parses a connection string', () => {
     const c = parseNwcUrl(`nostr+walletconnect://${PK}?relay=wss%3A%2F%2Frelay.getalby.com%2Fv1&secret=${SECRET}&lud16=x@y.com`)
     expect(c.walletPubkey).toBe(PK)
-    expect(c.relay).toBe('wss://relay.getalby.com/v1')
+    expect(c.relays).toEqual(['wss://relay.getalby.com/v1'])
     expect(c.secret).toHaveLength(32)
+  })
+
+  it('keeps every relay, in order', () => {
+    const c = parseNwcUrl(`nostr+walletconnect://${PK}?relay=wss://relay.getalby.com&relay=wss://relay2.getalby.com&secret=${SECRET}`)
+    expect(c.relays).toEqual(['wss://relay.getalby.com', 'wss://relay2.getalby.com'])
   })
 
   it('rejects malformed strings', () => {

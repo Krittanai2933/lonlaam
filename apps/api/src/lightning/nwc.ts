@@ -4,6 +4,8 @@
  * One `NwcClient` = one outbound WebSocket to the wallet's relay (1 subrequest). Requests are
  * kind-23194 events encrypted to the wallet; responses are kind-23195 events tagged with the
  * request id. NIP-44 is used when the wallet's info event advertises it, else NIP-04.
+ * `NwcWallet` wraps it for long runs: it reconnects (rotating through the connection
+ * string's relays) when a relay drops the socket.
  */
 import * as nip04 from 'nostr-tools/nip04'
 import * as nip44 from 'nostr-tools/nip44'
@@ -16,7 +18,8 @@ const RESPONSE_KIND = 23195
 
 export interface NwcConnection {
   walletPubkey: string
-  relay: string
+  /** All relays from the connection string, in order. */
+  relays: string[]
   secret: Uint8Array
 }
 
@@ -44,12 +47,12 @@ export function parseNwcUrl(url: string): NwcConnection {
   }
   if (u.protocol !== 'nostr+walletconnect:') throw new Error('NWC: expected nostr+walletconnect://')
   const walletPubkey = (u.host || u.pathname.replace(/^\/+/, '')).toLowerCase()
-  const relay = u.searchParams.get('relay')
+  const relays = u.searchParams.getAll('relay').filter((r) => /^wss?:\/\//.test(r))
   const secret = hexToBytes(u.searchParams.get('secret') ?? '')
   if (!/^[0-9a-f]{64}$/.test(walletPubkey)) throw new Error('NWC: invalid wallet pubkey')
-  if (!relay || !/^wss?:\/\//.test(relay)) throw new Error('NWC: missing relay')
+  if (!relays.length) throw new Error('NWC: missing relay')
   if (!secret || secret.length !== 32) throw new Error('NWC: invalid secret')
-  return { walletPubkey, relay, secret }
+  return { walletPubkey, relays, secret }
 }
 
 export interface MakeInvoiceResult {
@@ -59,7 +62,8 @@ export interface MakeInvoiceResult {
 }
 
 export interface LookupInvoiceResult {
-  settled: boolean
+  /** settled = paid (incoming) or sent (outgoing); failed = an outgoing payment that definitely failed. */
+  state: 'settled' | 'failed' | 'pending'
   preimage: string | null
 }
 
@@ -74,19 +78,33 @@ export class NwcClient {
   private readonly waiters = new Map<string, Waiter>()
   private encryption: 'nip04' | 'nip44_v2' = 'nip04'
   private closed = false
+  /** Set once the relay closed or errored the socket; the client can't be used any more. */
+  private dead = false
 
   private constructor(
     private readonly conn: NwcConnection,
+    private readonly relay: string,
     private readonly ws: WebSocket,
   ) {
     ws.addEventListener('message', (m) => this.onMessage(m.data))
-    ws.addEventListener('close', () => this.fail(new NwcError('RELAY', 'relay connection closed')))
-    ws.addEventListener('error', () => this.fail(new NwcError('RELAY', 'relay connection error')))
+    ws.addEventListener('close', (e) => {
+      this.dead = true
+      if (!this.closed) console.warn('nwc: relay closed the connection', { relay, code: e.code, reason: e.reason })
+      this.fail(new NwcError('RELAY', `relay connection closed (${e.code})`))
+    })
+    ws.addEventListener('error', () => {
+      this.dead = true
+      this.fail(new NwcError('RELAY', 'relay connection error'))
+    })
   }
 
-  static async connect(conn: NwcConnection, { timeoutMs = 8000 } = {}): Promise<NwcClient> {
+  get alive(): boolean {
+    return !this.dead && !this.closed
+  }
+
+  static async connect(conn: NwcConnection, { relay = conn.relays[0]!, timeoutMs = 8000 } = {}): Promise<NwcClient> {
     // Workers open outbound WebSockets with an Upgrade fetch (http(s) scheme).
-    const url = conn.relay.replace(/^ws/, 'http')
+    const url = relay.replace(/^ws/, 'http')
     let res: Response
     try {
       res = await fetch(url, { headers: { upgrade: 'websocket' }, signal: AbortSignal.timeout(timeoutMs) })
@@ -96,7 +114,7 @@ export class NwcClient {
     const ws = res.webSocket
     if (!ws) throw new NwcError('RELAY', `relay refused WebSocket (HTTP ${res.status})`)
     ws.accept()
-    const client = new NwcClient(conn, ws)
+    const client = new NwcClient(conn, relay, ws)
     await client.detectEncryption(timeoutMs)
     return client
   }
@@ -117,10 +135,12 @@ export class NwcClient {
     return { invoice: r.invoice, paymentHash: r.payment_hash.toLowerCase(), expiresAt: typeof r.expires_at === 'number' ? r.expires_at * 1000 : null }
   }
 
+  /** Works for both directions: our incoming invoices and payments we sent. Throws NOT_FOUND if unknown. */
   async lookupInvoice(paymentHash: string): Promise<LookupInvoiceResult> {
     const r = await this.request('lookup_invoice', { payment_hash: paymentHash })
     const settled = (typeof r.settled_at === 'number' && r.settled_at > 0) || r.state === 'settled'
-    return { settled, preimage: typeof r.preimage === 'string' && r.preimage ? r.preimage.toLowerCase() : null }
+    const state = settled ? 'settled' : r.state === 'failed' ? 'failed' : 'pending'
+    return { state, preimage: typeof r.preimage === 'string' && r.preimage ? r.preimage.toLowerCase() : null }
   }
 
   async payInvoice(bolt11: string, timeoutMs = 45_000): Promise<PayInvoiceResult> {
@@ -249,5 +269,50 @@ export class NwcClient {
 
   private fail(err: NwcError): void {
     for (const w of [...this.waiters.values()]) w.reject(err)
+  }
+}
+
+/**
+ * A lazily (re)connected NwcClient shared by concurrent callers. If the relay drops the
+ * socket, the next call reconnects, trying the connection string's relays in turn.
+ */
+export class NwcWallet {
+  private current: Promise<NwcClient> | null = null
+  private relayIndex = 0
+
+  constructor(private readonly conn: NwcConnection) {}
+
+  async client(): Promise<NwcClient> {
+    if (this.current) {
+      const c = await this.current.catch(() => null)
+      if (c?.alive) return c
+      // That relay dropped us (or never connected): try the next one first.
+      this.relayIndex = (this.relayIndex + 1) % this.conn.relays.length
+      this.current = null
+    }
+    this.current = this.connectAny()
+    return this.current
+  }
+
+  close(): void {
+    void this.current?.then((c) => c.close(), () => {})
+    this.current = null
+  }
+
+  private async connectAny(): Promise<NwcClient> {
+    let last: unknown
+    for (let i = 0; i < this.conn.relays.length; i++) {
+      const relay = this.conn.relays[(this.relayIndex + i) % this.conn.relays.length]!
+      try {
+        const c = await NwcClient.connect(this.conn, { relay })
+        this.relayIndex = (this.relayIndex + i) % this.conn.relays.length
+        return c
+      } catch (e) {
+        last = e
+      }
+    }
+    // Next time, start from the relay after the one that failed first.
+    this.relayIndex = (this.relayIndex + 1) % this.conn.relays.length
+    throw last
   }
 }

@@ -7,7 +7,9 @@
 // Also the platform wallet for sprinkles: a tiny Nostr relay on :<port+1> that answers NIP-47
 // (NWC) requests itself. Its connection string is MOCK_NWC_URL below (wrangler.jsonc env.dev).
 // Controls: GET /nwc/last (latest make_invoice), POST /pay/<hash> settles it like any invoice,
-// GET /nwc/payments lists pay_invoice calls, POST /nwc/fail-next fails the next pay_invoice.
+// GET /nwc/payments lists pay_invoice calls, POST /nwc/fail-next[?code=…] fails the next
+// pay_invoice (default PAYMENT_FAILED), POST /nwc/drop-next pays the next one but drops the
+// socket instead of answering (like a relay hiccup).
 import { createHash } from 'node:crypto'
 import { createServer } from 'node:http'
 import * as nip04 from 'nostr-tools/nip04'
@@ -31,8 +33,12 @@ const walletPk = getPublicKey(walletSk)
 const clientSk = createHash('sha256').update('nampu-mock-nwc-client').digest('hex')
 console.log(`[mock-wallet] NWC: nostr+walletconnect://${walletPk}?relay=ws://localhost:${relayPort}&secret=${clientSk}`)
 let lastNwc = null
-let nwcFailNext = false
+let nwcFailNext = null // error code for the next pay_invoice
+let nwcDropNext = false
 const nwcPayments = [] // { paymentHash, ok, error? }
+// Like a real wallet, lookup_invoice only knows invoices this wallet made or tried to pay
+// (the shared `invoices` map also holds the creators' LNURL invoices).
+const nwcKnown = new Set()
 
 function nwcHandle(method, params) {
   if (method === 'make_invoice') {
@@ -41,28 +47,39 @@ function nwcHandle(method, params) {
     const pr = encodeBolt11({ amountMsat: params.amount, paymentHash, expiry })
     invoices.set(paymentHash, { preimage, pr, settled: false })
     lastNwc = { paymentHash, pr, amountMsat: params.amount }
+    nwcKnown.add(paymentHash)
     const now = Math.floor(Date.now() / 1000)
     return { type: 'incoming', invoice: pr, payment_hash: paymentHash, amount: params.amount, created_at: now, expires_at: now + expiry }
   }
   if (method === 'lookup_invoice') {
-    const inv = invoices.get(params.payment_hash)
+    const inv = nwcKnown.has(params.payment_hash) && invoices.get(params.payment_hash)
     if (!inv) throw { code: 'NOT_FOUND', message: 'invoice not found' }
-    return { type: 'incoming', invoice: inv.pr, payment_hash: params.payment_hash, ...(inv.settled && { settled_at: Math.floor(Date.now() / 1000), preimage: inv.preimage }) }
+    return {
+      type: 'incoming',
+      invoice: inv.pr,
+      payment_hash: params.payment_hash,
+      state: inv.settled ? 'settled' : inv.failed ? 'failed' : 'pending',
+      ...(inv.settled && { settled_at: Math.floor(Date.now() / 1000), preimage: inv.preimage }),
+    }
   }
   if (method === 'pay_invoice') {
     const entry = [...invoices.entries()].find(([, v]) => v.pr === params.invoice)
     const paymentHash = entry?.[0] ?? null
-    const fail = (message) => {
+    if (paymentHash) nwcKnown.add(paymentHash)
+    const fail = (message, code = 'PAYMENT_FAILED') => {
       nwcPayments.push({ paymentHash, ok: false, error: message })
-      throw { code: 'PAYMENT_FAILED', message }
+      if (entry) entry[1].failed = true
+      throw { code, message }
     }
     if (nwcFailNext) {
-      nwcFailNext = false
-      fail('no route (simulated)')
+      const code = nwcFailNext
+      nwcFailNext = null
+      fail(code === 'PAYMENT_FAILED' ? 'no route (simulated)' : `${code} (simulated)`, code)
     }
     if (!entry) fail('unknown invoice')
     if (entry[1].settled) fail('invoice already paid')
     entry[1].settled = true
+    entry[1].failed = false
     nwcPayments.push({ paymentHash, ok: true })
     return { preimage: entry[1].preimage, fees_paid: 0 }
   }
@@ -106,6 +123,10 @@ new WebSocketServer({ port: relayPort }).on('connection', (ws) => {
       let body
       try {
         body = { result_type: method, error: null, result: nwcHandle(method, params ?? {}) }
+        if (method === 'pay_invoice' && nwcDropNext) {
+          nwcDropNext = false
+          return ws.terminate() // paid, but the answer never arrives
+        }
       } catch (e) {
         body = { result_type: method, error: { code: e.code ?? 'INTERNAL', message: e.message ?? String(e) }, result: null }
       }
@@ -160,7 +181,11 @@ createServer((req, res) => {
   if (a === 'nwc' && req.method === 'GET' && b === 'last') return send(res, 200, lastNwc)
   if (a === 'nwc' && req.method === 'GET' && b === 'payments') return send(res, 200, nwcPayments)
   if (a === 'nwc' && req.method === 'POST' && b === 'fail-next') {
-    nwcFailNext = true
+    nwcFailNext = url.searchParams.get('code') ?? 'PAYMENT_FAILED'
+    return send(res, 200, { ok: true })
+  }
+  if (a === 'nwc' && req.method === 'POST' && b === 'drop-next') {
+    nwcDropNext = true
     return send(res, 200, { ok: true })
   }
   if (req.method === 'POST' && a === 'fail-next') {
