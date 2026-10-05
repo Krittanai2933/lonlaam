@@ -5,15 +5,11 @@ import { and, desc, eq, ne } from 'drizzle-orm'
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 import * as v from 'valibot'
-import { type AppEnv, type Db, lnurlOptions, mediaBase } from '../context'
-import { isUniqueViolation } from '../db/errors'
+import { type AppEnv, type Db, mediaBase } from '../context'
 import { creators, invoices, projects } from '../db/schema'
-import { MAX_PENDING } from '../do/project-room'
-import { Bolt11Error, decodeBolt11 } from '../lightning/bolt11'
-import { fetchPayRequest, requestInvoice } from '../lightning/lnurl'
 import { ApiError, notFound } from '../lib/errors'
-import { newId } from '../lib/util'
 import { json } from '../lib/validate'
+import { createProjectInvoice, roomFor } from '../lib/project-invoice'
 import { pageLimit, supporterPage } from '../lib/supporters'
 import { clampLimit, LEADERBOARD_LIMIT } from '../lib/discover'
 import { toInvoice, toPublicProject, toSupporter } from '../serialize'
@@ -48,8 +44,6 @@ async function requirePublicProject(c: Context<AppEnv>) {
   if (!row) throw notFound('project')
   return row
 }
-
-const roomFor = (env: Env, projectId: string) => env.PROJECT_ROOM.get(env.PROJECT_ROOM.idFromName(projectId))
 
 /** Largest single payments (names are free text, so summing by name would be spoofable). */
 function leaderRows(db: Db, projectId: string, limit: number) {
@@ -96,10 +90,7 @@ export const publicRoutes = new Hono<AppEnv>()
     return c.json({ leaders: rows.map(toSupporter) } satisfies LeaderboardResponse)
   })
 
-  /**
-   * Non-custodial flow: the invoice is issued by the creator's own wallet via LNURL-pay
-   * (2 subrequests), and the project's Durable Object polls its LUD-21 verify URL.
-   */
+  /** Non-custodial: the invoice comes from the creator's own wallet (see createProjectInvoice). */
   .post('/p/:slug/invoices', rateLimit('RL_INVOICE', 'invoice'), json(createInvoiceBody), async (c) => {
     const body = c.req.valid('json')
     const { project, creator } = await requirePublicProject(c)
@@ -107,67 +98,8 @@ export const publicRoutes = new Hono<AppEnv>()
       throw new ApiError(409, 'project_not_active', 'this project is not accepting payments')
     }
     if (!creator.lightningAddress) throw new ApiError(409, 'lightning_address_missing', 'creator has no Lightning Address')
-
-    const opts = lnurlOptions(c.env)
-    const amountMsat = body.amountSats * 1000
-    const pay = await fetchPayRequest(creator.lightningAddress, opts)
-    if (amountMsat < pay.minSendable || amountMsat > pay.maxSendable) {
-      throw new ApiError(
-        422,
-        'amount_out_of_range',
-        `amount must be between ${Math.ceil(pay.minSendable / 1000)} and ${Math.floor(pay.maxSendable / 1000)} sats`,
-      )
-    }
-    const cb = await requestInvoice(pay, amountMsat, body.comment || undefined, opts)
-
-    let decoded
-    try {
-      decoded = decodeBolt11(cb.pr)
-    } catch (e) {
-      throw new ApiError(502, 'lnurl_error', `LNURL: wallet returned an invalid invoice (${e instanceof Bolt11Error ? e.message : 'decode failed'})`)
-    }
-    if (decoded.amountMsat !== amountMsat) throw new ApiError(502, 'lnurl_error', 'LNURL: invoice amount does not match request')
-    const now = Date.now()
-    const expiresAt = (decoded.timestamp + decoded.expiry) * 1000
-    if (expiresAt <= now + 30_000) throw new ApiError(502, 'lnurl_error', 'LNURL: invoice is already expired')
-
-    const id = newId()
-    // Register with the DO before the row exists: if the insert then fails, the DO just
-    // polls an unknown invoice until expiry and its conditional updates match nothing.
-    const tracked = await roomFor(c.env, project.id).trackInvoice({
-      id,
-      projectId: project.id,
-      verifyUrl: cb.verify,
-      paymentHash: decoded.paymentHash,
-      amountMsat,
-      createdAt: now,
-      expiresAt,
-    })
-    if (!tracked.ok) {
-      throw new ApiError(429, 'rate_limited', `too many unpaid invoices for this project (max ${MAX_PENDING}); try again shortly`)
-    }
-
-    try {
-      const [row] = await c.var.db
-        .insert(invoices)
-        .values({
-          id,
-          projectId: project.id,
-          amountMsat,
-          supporterName: body.supporterName || null,
-          comment: body.comment || null,
-          bolt11: cb.pr,
-          paymentHash: decoded.paymentHash,
-          verifyUrl: cb.verify,
-          createdAt: now,
-          expiresAt,
-        })
-        .returning()
-      return c.json(toInvoice(row!) satisfies CreateInvoiceResponse, 201)
-    } catch (e) {
-      if (isUniqueViolation(e)) throw new ApiError(502, 'lnurl_error', 'LNURL: wallet reused a payment hash')
-      throw e
-    }
+    const row = await createProjectInvoice(c.env, c.var.db, project.id, creator.lightningAddress, body)
+    return c.json(toInvoice(row) satisfies CreateInvoiceResponse, 201)
   })
 
   .get('/invoices/:id', async (c) => {

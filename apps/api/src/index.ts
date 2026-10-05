@@ -9,9 +9,11 @@ import { discoverRoutes } from './routes/discover'
 import { meRoutes } from './routes/me'
 import { projectRoutes } from './routes/projects'
 import { publicRoutes } from './routes/public'
+import { sprinkleRoutes } from './routes/sprinkles'
 import { webRoutes } from './routes/web'
 
 export { ProjectRoom } from './do/project-room'
+export { SprinkleRoom } from './do/sprinkle-room'
 
 const api = new Hono<AppEnv>()
   .get('/health', (c) => c.json({ ok: true, time: Date.now() } satisfies HealthResponse))
@@ -21,6 +23,7 @@ const api = new Hono<AppEnv>()
   .route('/projects', discoverRoutes)
   .route('/projects', projectRoutes)
   .route('/', publicRoutes)
+  .route('/sprinkles', sprinkleRoutes)
 
 const app = new Hono<AppEnv>()
   .use(canonicalHost)

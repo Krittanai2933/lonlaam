@@ -114,6 +114,62 @@ export const invoices = sqliteTable(
   ],
 )
 
+/** One supporter payment to the platform wallet (NWC), split across random projects. */
+export const sprinkles = sqliteTable(
+  'sprinkles',
+  {
+    id: text('id').primaryKey(),
+    amountMsat: integer('amount_msat').notNull(),
+    projectCount: integer('project_count').notNull(),
+    perProjectMsat: integer('per_project_msat').notNull(),
+    supporterName: text('supporter_name'),
+    comment: text('comment'),
+    /** Invoice from the platform wallet (NWC make_invoice). */
+    bolt11: text('bolt11').notNull(),
+    paymentHash: text('payment_hash').notNull().unique(),
+    status: text('status', { enum: ['pending', 'distributing', 'done', 'expired'] }).notNull().default('pending'),
+    createdAt: integer('created_at').notNull().default(now),
+    expiresAt: integer('expires_at').notNull(),
+    paidAt: integer('paid_at'),
+    completedAt: integer('completed_at'),
+  },
+  (t) => [
+    index('sprinkles_status_idx').on(t.status, t.createdAt),
+    check('sprinkles_status_check', sql`${t.status} IN ('pending', 'distributing', 'done', 'expired')`),
+  ],
+)
+
+/**
+ * One project's share of a sprinkle. `paying` = an invoice from the creator's wallet exists
+ * and pay_invoice was sent (maybe in flight); a failed payout is replaced by another project.
+ */
+export const sprinklePayouts = sqliteTable(
+  'sprinkle_payouts',
+  {
+    id: text('id').primaryKey(),
+    sprinkleId: text('sprinkle_id')
+      .notNull()
+      .references(() => sprinkles.id, { onDelete: 'cascade' }),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    /** The project invoice this payout pays; settles through the project's normal LUD-21 polling. */
+    invoiceId: text('invoice_id').references(() => invoices.id, { onDelete: 'set null' }),
+    amountMsat: integer('amount_msat').notNull(),
+    status: text('status', { enum: ['pending', 'paying', 'paid', 'failed'] }).notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    lastError: text('last_error'),
+    createdAt: integer('created_at').notNull().default(now),
+    updatedAt: integer('updated_at').notNull().default(now),
+  },
+  (t) => [
+    index('sprinkle_payouts_sprinkle_idx').on(t.sprinkleId, t.createdAt),
+    check('sprinkle_payouts_status_check', sql`${t.status} IN ('pending', 'paying', 'paid', 'failed')`),
+  ],
+)
+
 export type CreatorRow = typeof creators.$inferSelect
 export type ProjectRow = typeof projects.$inferSelect
 export type InvoiceRow = typeof invoices.$inferSelect
+export type SprinkleRow = typeof sprinkles.$inferSelect
+export type SprinklePayoutRow = typeof sprinklePayouts.$inferSelect

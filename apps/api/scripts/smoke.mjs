@@ -421,6 +421,55 @@ step('closed project rejects invoices')
   step('leaderboard: largest payments first, limit')
 }
 
+// ─── Sprinkle: one payment to the platform wallet (mock NWC), split across random projects ───
+{
+  const cfg = (await call('GET', '/api/sprinkles/config')).json
+  assert.equal(cfg.enabled, true)
+  assert.ok(cfg.eligibleProjects >= 2, `need 2 eligible projects, have ${cfg.eligibleProjects}`)
+  const tooSmall = await call('POST', '/api/sprinkles', { body: { amountSats: 21, projectCount: 2 } })
+  assert.equal(tooSmall.status, 422)
+  assert.equal(tooSmall.json.error.code, 'amount_out_of_range')
+  if (cfg.eligibleProjects < 10) {
+    const tooMany = await call('POST', '/api/sprinkles', { body: { amountSats: 21_000, projectCount: cfg.eligibleProjects + 1 } })
+    assert.equal(tooMany.json.error.code, 'not_enough_projects')
+  }
+
+  const created = await call('POST', '/api/sprinkles', { body: { amountSats: 1000, projectCount: 2, supporterName: 'Sprinkler', comment: 'sprinkle!' } })
+  assert.equal(created.status, 201, JSON.stringify(created.json))
+  assert.equal(created.json.status, 'pending')
+  assert.equal(created.json.perProjectSats, 490)
+  const nwcInvoice = await (await fetch(`${WALLET}/nwc/last`)).json()
+  assert.equal(nwcInvoice.pr, created.json.bolt11)
+  // The first payout attempt fails (no route): it must be retried with a fresh invoice.
+  await fetch(`${WALLET}/nwc/fail-next`, { method: 'POST' })
+  await fetch(`${WALLET}/pay/${nwcInvoice.paymentHash}`, { method: 'POST' })
+
+  let s
+  const t0 = Date.now()
+  for (;;) {
+    s = (await call('GET', `/api/sprinkles/${created.json.id}`)).json
+    if (s.status === 'done' || Date.now() - t0 > 30_000) break
+    await sleep(500)
+  }
+  assert.equal(s.status, 'done', JSON.stringify(s))
+  assert.equal(s.payouts.length, 2)
+  assert.ok(s.payouts.every((p) => p.status === 'paid' && p.amountSats === 490))
+  const payments = await (await fetch(`${WALLET}/nwc/payments`)).json()
+  assert.ok(payments.some((p) => !p.ok), 'expected the simulated failure')
+
+  // Each payout lands as an ordinary supporter payment on its project.
+  for (const p of s.payouts) {
+    let found = null
+    for (let i = 0; i < 40 && !found; i++) {
+      found = (await call('GET', `/api/p/${p.slug}/supporters`)).json.supporters.find((x) => x.name === 'Sprinkler' && x.amountSats === 490)
+      if (!found) await sleep(500)
+    }
+    assert.ok(found, `payout to ${p.slug} not visible as a supporter`)
+    assert.equal(found.comment, 'sprinkle!')
+  }
+  step(`sprinkle: NWC invoice → paid → split across 2 random projects in ${Date.now() - t0}ms, failed payout retried`)
+}
+
 // Rate limiting: RL_WRITE keeps its production limit (30/min per creator) in --env dev.
 {
   const { res } = await nostrLogin(schnorr.utils.randomSecretKey())
