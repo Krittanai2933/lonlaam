@@ -265,6 +265,7 @@ function DesktopDashboard({ project }: { project: Project }) {
   const supporters = useSupporters(project.id, q, filter)
   const menu = useProjectMenu(project)
   const share = useShare(project)
+  const navigate = useNavigate()
   const allTime = all.data?.allTime
 
   return (
@@ -297,6 +298,9 @@ function DesktopDashboard({ project }: { project: Project }) {
             <div className="text-[13px] text-neutral-600">{t.dashboard}</div>
             <h1 className="m-0 text-[36px] font-normal">{project.title}</h1>
           </div>
+          <Button variant="secondary" icon="edit" onClick={() => navigate(`/projects/${project.id}/edit`)}>
+            {t.edit}
+          </Button>
           <Button variant="secondary" icon="share" onClick={() => void share.share()} disabled={share.disabled}>
             {share.label}
           </Button>
