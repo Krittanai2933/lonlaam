@@ -16,6 +16,7 @@
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.135.0",
     "@hono/standard-validator": "^0.4.0",
     "@nampu/types": "workspace:*",
     "@noble/curves": "^2.4.0",

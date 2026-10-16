@@ -49,13 +49,15 @@
   "durable_objects": {
     "bindings": [
       { "name": "PROJECT_ROOM", "class_name": "ProjectRoom" },
-      { "name": "SPRINKLE_ROOM", "class_name": "SprinkleRoom" }
+      { "name": "SPRINKLE_ROOM", "class_name": "SprinkleRoom" },
+      { "name": "PROJECT_TRANSLATOR", "class_name": "ProjectTranslator" }
     ]
   },
   "migrations": [
     // SQLite-backed Durable Objects are the only kind available on the Free plan.
     { "tag": "v1", "new_sqlite_classes": ["ProjectRoom"] },
-    { "tag": "v2", "new_sqlite_classes": ["SprinkleRoom"] }
+    { "tag": "v2", "new_sqlite_classes": ["SprinkleRoom"] },
+    { "tag": "v3", "new_sqlite_classes": ["ProjectTranslator"] }
   ],
 
   "ratelimits": [
@@ -77,6 +79,8 @@
     "SITE_NAME": "ล้นหลาม",
     // "true" only for local dev: allows http:// LNURL endpoints and host:port Lightning Addresses.
     "ALLOW_INSECURE_LNURL": "false"
+    // Secret ANTHROPIC_API_KEY (wrangler secret put ANTHROPIC_API_KEY) turns on English
+    // machine translation of project text (src/do/project-translator.ts). Unset = off.
   },
 
   "observability": { "enabled": true },
@@ -108,7 +112,8 @@
       "durable_objects": {
         "bindings": [
           { "name": "PROJECT_ROOM", "class_name": "ProjectRoom" },
-          { "name": "SPRINKLE_ROOM", "class_name": "SprinkleRoom" }
+          { "name": "SPRINKLE_ROOM", "class_name": "SprinkleRoom" },
+          { "name": "PROJECT_TRANSLATOR", "class_name": "ProjectTranslator" }
         ]
       },
       // Local limits: generous where smoke/e2e/seed scripts create lots of data from one IP;

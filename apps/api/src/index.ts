@@ -14,6 +14,7 @@ import { webRoutes } from './routes/web'
 
 export { ProjectRoom } from './do/project-room'
 export { SprinkleRoom } from './do/sprinkle-room'
+export { ProjectTranslator } from './do/project-translator'
 
 const api = new Hono<AppEnv>()
   .get('/health', (c) => c.json({ ok: true, time: Date.now() } satisfies HealthResponse))

@@ -49,8 +49,8 @@ export const discoverRoutes = new Hono<AppEnv>().get('/', async (c) => {
   const media = mediaBase(c.env, c.req.url)
   const page = rows.slice(0, query.limit)
   const out: ProjectSummary[] = page.map((r) => {
-    const { body: _body, ...rest } = toPublicProject(r.project, r.creator, media)
-    return { ...rest, weekSats: msatToSats(r.weekMsat) }
+    const { body: _body, translation: t, ...rest } = toPublicProject(r.project, r.creator, media)
+    return { ...rest, translation: t && { lang: t.lang, title: t.title, summary: t.summary }, weekSats: msatToSats(r.weekMsat) }
   })
   c.header('cache-control', 'public, max-age=30')
   return c.json({
