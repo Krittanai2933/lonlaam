@@ -22,6 +22,7 @@ import { isUniqueViolation } from '../db/errors'
 import { type ProjectRow, projects } from '../db/schema'
 import { ApiError, notFound } from '../lib/errors'
 import { pageLimit, supporterPage, supporterRows } from '../lib/supporters'
+import { requestTranslation } from '../lib/translate'
 import { msatToSats, newId } from '../lib/util'
 import { bodySchema, goalSchema, json, slugSchema, summarySchema, titleSchema } from '../lib/validate'
 import { requireCreator, requireOnboarded } from '../middleware'
@@ -210,6 +211,8 @@ export const projectRoutes = new Hono<AppEnv>()
 
     try {
       const [row] = await c.var.db.update(projects).set(patch).where(eq(projects.id, current.id)).returning()
+      const textChanged = ['title', 'summary', 'body', 'milestones', 'status'].some((k) => k in patch)
+      if (row!.status !== 'draft' && textChanged) requestTranslation(c.env, c.executionCtx, row!.id, true)
       return c.json(respond(c, row!) satisfies UpdateProjectResponse)
     } catch (e) {
       if (isUniqueViolation(e)) throw new ApiError(409, 'conflict', 'slug is taken')

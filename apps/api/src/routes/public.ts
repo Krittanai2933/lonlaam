@@ -12,6 +12,7 @@ import { nip98Pubkey } from '../lib/signatures'
 import { json, nostrEventSchema } from '../lib/validate'
 import { createProjectInvoice, roomFor } from '../lib/project-invoice'
 import { pageLimit, supporterPage } from '../lib/supporters'
+import { requestTranslation } from '../lib/translate'
 import { clampLimit, LEADERBOARD_LIMIT } from '../lib/discover'
 import { toInvoice, toPublicProject, toSupporter } from '../serialize'
 
@@ -67,6 +68,8 @@ function leaderRows(db: Db, projectId: string, limit: number) {
 export const publicRoutes = new Hono<AppEnv>()
   .get('/p/:slug', async (c) => {
     const { project, creator } = await requirePublicProject(c)
+    // Projects published before translation existed get one on their first view.
+    if (project.enSourceHash === null) requestTranslation(c.env, c.executionCtx, project.id, false)
     const [supporters, leaders] = await Promise.all([
       supporterPage(c.var.db, project.id, {}, undefined, PUBLIC_PAGE.supporters),
       leaderRows(c.var.db, project.id, PUBLIC_PAGE.leaders),

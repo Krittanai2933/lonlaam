@@ -10,6 +10,7 @@ import { api } from '../lib/api'
 import { daysLeft, fmt, short } from '../lib/format'
 import { useIsDesktop } from '../lib/hooks'
 import { useI18n } from '../lib/i18n'
+import { localized } from '../lib/translation'
 import { useTheme } from '../lib/theme'
 
 type Cat = ProjectCategory | 'all'
@@ -84,7 +85,7 @@ function MobileDiscover({ cat, setCat, search, setSearch, q, list }: ViewProps) 
   const { theme, toggleTheme } = useTheme()
   const cats = useCats()
   const searchRef = useRef<HTMLInputElement>(null)
-  const items = list.data?.pages.flatMap((p) => p.projects) ?? []
+  const items = (list.data?.pages.flatMap((p) => p.projects) ?? []).map((p) => localized(p, lang))
   const [featured, ...rest] = items
 
   return (
@@ -166,10 +167,10 @@ function MobileDiscover({ cat, setCat, search, setSearch, q, list }: ViewProps) 
 // ─── 1c · Desktop ─────────────────────────────────────────────────────────────
 
 function DesktopDiscover({ cat, setCat, sort, setSort, search, setSearch, q, list }: ViewProps) {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const cats = useCats()
   const trending = useTrending()
-  const items = list.data?.pages.flatMap((p) => p.projects) ?? []
+  const items = (list.data?.pages.flatMap((p) => p.projects) ?? []).map((p) => localized(p, lang))
 
   return (
     <div className="mx-auto max-w-[1280px]">
@@ -201,7 +202,7 @@ function DesktopDiscover({ cat, setCat, sort, setSort, search, setSearch, q, lis
             <Icon name="trending" />
             {t.trendingWeek}
           </h6>
-          {(trending.data ?? []).map((p, i) => (
+          {(trending.data ?? []).map((p) => localized(p, lang)).map((p, i) => (
             <Link key={p.id} to={`/p/${p.slug}`} className="grid grid-cols-[50px_minmax(0,1fr)_auto] items-center gap-3 border-b border-divider py-3 text-fg no-underline hover:text-fg">
               <span className="tnum font-heading text-[40px] leading-[0.9] text-transparent" style={{ WebkitTextStroke: '1px var(--color-accent)' }}>{`0${i + 1}`}</span>
               <div>

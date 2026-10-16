@@ -1,6 +1,6 @@
 import type { GetProjectResponse, GetPublicProjectResponse, ListSupportersResponse, ProjectStats, PublicProject, Supporter } from '@nampu/types'
 import { PUBLIC_PAGE } from '@nampu/types'
-import { Avatar, Brand, Button, Icon, Plate, Progress, Tag, Tabs } from '@nampu/ui'
+import { Avatar, Brand, Button, cx, Icon, Plate, Progress, Tag, Tabs } from '@nampu/ui'
 import { type InfiniteData, type QueryClient, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createContext, useContext, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
@@ -14,6 +14,7 @@ import { FullPageSpinner } from '../lib/auth'
 import { ago, daysLeft, fmt } from '../lib/format'
 import { useIsDesktop, useNow, useProjectSocket } from '../lib/hooks'
 import { useI18n } from '../lib/i18n'
+import { localized } from '../lib/translation'
 import { useTrending } from './Discover'
 
 type Tab = 'story' | 'supporters'
@@ -38,6 +39,8 @@ export default function ProjectPage() {
     retry: (n, e) => !(e instanceof ApiError && (e.status === 404 || e.status === 401)) && n < 2,
   })
   const [contributing, setContributing] = useState(false)
+  const { lang } = useI18n()
+  const [showOriginal, setShowOriginal] = useState(false)
 
   // Live totals + activity while the page is open, applied locally: a refetch here would
   // cost every open viewer two requests per payment.
@@ -47,20 +50,41 @@ export default function ProjectPage() {
 
   if (project.isPending) return <FullPageSpinner />
   if (project.isError) return <NotFound />
-  const p = project.data
+  const translatable = lang === 'en' && project.data.translation !== null
+  const p = showOriginal ? project.data : localized(project.data, lang)
   const View = desktop ? DesktopProject : MobileProject
+  const translation = translatable ? { original: showOriginal, toggle: () => setShowOriginal((v) => !v) } : null
   if (previewId)
     return (
       <PreviewCtx.Provider value={previewId}>
-        <PreviewBar />
-        <View project={p} onContribute={() => {}} />
+        <TranslationCtx.Provider value={translation}>
+          <PreviewBar />
+          <View project={p} onContribute={() => {}} />
+        </TranslationCtx.Provider>
       </PreviewCtx.Provider>
     )
   return (
-    <>
+    <TranslationCtx.Provider value={translation}>
       <View project={p} onContribute={() => setContributing(true)} />
       <ContributeFlow project={p} open={contributing} onClose={() => setContributing(false)} desktop={desktop} />
-    </>
+    </TranslationCtx.Provider>
+  )
+}
+
+/** Set when the page shows (or can show) the English machine translation. */
+const TranslationCtx = createContext<{ original: boolean; toggle: () => void } | null>(null)
+
+function TranslationNote({ className }: { className?: string }) {
+  const { t } = useI18n()
+  const tr = useContext(TranslationCtx)
+  if (!tr) return null
+  return (
+    <div className={cx('flex flex-wrap items-center gap-x-2 text-xs text-neutral-600', className)}>
+      {!tr.original && <span>{t.machineTranslated}</span>}
+      <button type="button" className="cursor-pointer text-accent-700 underline underline-offset-2" onClick={tr.toggle}>
+        {tr.original ? t.showTranslation : t.showOriginal}
+      </button>
+    </div>
   )
 }
 
@@ -308,6 +332,7 @@ function MobileProject({ project: p, onContribute }: { project: PublicProject; o
           <Tags p={p} />
         </div>
         <h1 className="m-0 mb-1.5 text-[28px] leading-[1.25] font-medium">{p.title}</h1>
+        <TranslationNote className="mb-2" />
         <div className="flex items-center gap-2 text-[13px] text-neutral-700">
           <Avatar name={p.creator.displayName} size={24} accent />
           {`${t.by} ${p.creator.displayName}`}
@@ -379,6 +404,7 @@ function DesktopProject({ project: p, onContribute }: { project: PublicProject; 
             <Tags p={p} />
           </div>
           <h1 className="m-0 mb-2 text-[40px] leading-[1.2] font-normal">{p.title}</h1>
+          <TranslationNote className="mb-3" />
           {p.summary && <p className="m-0 mb-5 max-w-[640px] text-[17px] text-neutral-700">{p.summary}</p>}
           <Plate src={p.coverUrl} ratio="16/9" />
         </div>

@@ -76,6 +76,16 @@ export const projects = sqliteTable(
     supporterCount: integer('supporter_count').notNull().default(0),
     status: text('status', { enum: ['draft', 'active', 'closed'] }).notNull().default('draft'),
     publishedAt: integer('published_at'),
+    /**
+     * English machine translation of title/summary/body/milestone labels (ProjectTranslator).
+     * Null when there is none yet, or when the creator already wrote in English.
+     */
+    titleEn: text('title_en'),
+    summaryEn: text('summary_en'),
+    bodyEn: text('body_en'),
+    milestonesEn: text('milestones_en', { mode: 'json' }).$type<string[]>(),
+    /** translationSourceHash() of the text the *_en columns were made from (or judged not to need translating). */
+    enSourceHash: text('en_source_hash'),
     createdAt: integer('created_at').notNull().default(now),
     updatedAt: integer('updated_at').notNull().default(now),
   },

@@ -208,6 +208,9 @@ const th = {
   leaderboard: 'ผู้สนับสนุนสูงสุด',
   activity: 'ความเคลื่อนไหว',
   anonNote: 'สนับสนุนแบบไม่ระบุชื่อได้',
+  machineTranslated: 'แปลอัตโนมัติจากภาษาไทย',
+  showOriginal: 'ดูต้นฉบับ',
+  showTranslation: 'ดูคำแปล',
   sent: 'สนับสนุน {amount} sats',
   projectClosed: 'ปิดรับการสนับสนุนแล้ว', // (added)
   projectNotFound: 'ไม่พบโปรเจกต์นี้', // (added)
@@ -450,6 +453,9 @@ const en: Dict = {
   leaderboard: 'Top supporters',
   activity: 'Activity',
   anonNote: 'You can contribute anonymously',
+  machineTranslated: 'Automatically translated from Thai',
+  showOriginal: 'Show original',
+  showTranslation: 'Show translation',
   sent: 'sent {amount} sats',
   projectClosed: 'No longer accepting support',
   projectNotFound: 'Project not found',

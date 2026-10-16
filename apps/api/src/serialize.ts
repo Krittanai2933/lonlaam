@@ -1,4 +1,4 @@
-import type { Creator, Invoice, Project, PublicProject, Supporter } from '@nampu/types'
+import type { Creator, Invoice, Project, ProjectTranslation, PublicProject, Supporter } from '@nampu/types'
 import type { CreatorRow, InvoiceRow, ProjectRow } from './db/schema'
 import { msatToSats } from './lib/util'
 
@@ -26,6 +26,19 @@ export function toCreator(r: CreatorRow): Creator {
 /** Projects only exist for onboarded creators, so handle/displayName are set in practice. */
 export type ProjectCreator = Pick<CreatorRow, 'handle' | 'displayName' | 'npub'>
 
+function toTranslation(r: ProjectRow, media: string): ProjectTranslation | null {
+  const labels = r.milestonesEn
+  // A milestone added or removed since the last translation: wait for the next one.
+  if (r.titleEn === null || !labels || labels.length !== r.milestones.length) return null
+  return {
+    lang: 'en',
+    title: r.titleEn,
+    summary: r.summaryEn ?? '',
+    body: rewriteMedia(r.bodyEn ?? '', media),
+    milestones: r.milestones.map((m, i) => ({ sats: m.sats, label: labels[i]! })),
+  }
+}
+
 export function toProject(r: ProjectRow, creator: ProjectCreator, media: string): Project {
   return {
     id: r.id,
@@ -45,6 +58,7 @@ export function toProject(r: ProjectRow, creator: ProjectCreator, media: string)
     publishedAt: r.publishedAt,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
+    translation: toTranslation(r, media),
   }
 }
 

@@ -219,6 +219,22 @@ export interface PublicProject extends ProjectStats {
   creator: PublicCreator
   publishedAt: number | null
   createdAt: number
+  /**
+   * English machine translation of the creator's text, for readers using the English UI.
+   * null until one has been made (shortly after publishing or an edit), and for projects
+   * already written in English. May briefly lag the latest edit.
+   */
+  translation: ProjectTranslation | null
+}
+
+export interface ProjectTranslation {
+  lang: 'en'
+  title: string
+  summary: string
+  /** Markdown, like PublicProject.body. */
+  body: string
+  /** Same order and length as PublicProject.milestones. */
+  milestones: Milestone[]
 }
 
 /** Owner view: includes drafts. */
@@ -306,7 +322,8 @@ export const DISCOVER_SORTS = ['trending', 'new', 'ending', 'funded'] as const
 export type DiscoverSort = (typeof DISCOVER_SORTS)[number]
 
 /** Card-sized project: no story body. */
-export interface ProjectSummary extends Omit<PublicProject, 'body'> {
+export interface ProjectSummary extends Omit<PublicProject, 'body' | 'translation'> {
+  translation: Pick<ProjectTranslation, 'lang' | 'title' | 'summary'> | null
   /** Sats received in the last 7 days. */
   weekSats: number
 }
