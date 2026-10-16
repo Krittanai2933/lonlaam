@@ -36,6 +36,13 @@
       "when": 1792126951590,
       "tag": "0004_project_translations",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1792128703938,
+      "tag": "0005_project_translation_manual",
+      "breakpoints": true
     }
   ]
 }

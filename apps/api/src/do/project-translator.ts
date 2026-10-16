@@ -3,7 +3,7 @@ import { DurableObject } from 'cloudflare:workers'
 import { eq } from 'drizzle-orm'
 import { getDb } from '../context'
 import { projects } from '../db/schema'
-import { needsTranslation, type TranslationText, translateToEnglish, translationSourceHash } from '../lib/translate'
+import { needsTranslation, sourceText, type TranslationText, translateToEnglish, translationSourceHash } from '../lib/translate'
 
 /**
  * One instance per project (idFromName(projectId)). Keeps the English translation in
@@ -39,14 +39,10 @@ export class ProjectTranslator extends DurableObject<Env> {
     if (!projectId || !apiKey) return
     const db = getDb(this.env.DB)
     const row = await db.query.projects.findFirst({ where: eq(projects.id, projectId) })
-    if (!row || row.status === 'draft') return
+    // The creator's own English version is never replaced.
+    if (!row || row.status === 'draft' || row.enManual) return
 
-    const src: TranslationText = {
-      title: row.title,
-      summary: row.summary,
-      body: row.body,
-      milestones: row.milestones.map((m) => m.label),
-    }
+    const src = sourceText(row)
     const hash = await translationSourceHash(src)
     if (hash === row.enSourceHash) return
     // Don't keep paying for a text that just failed every retry (the next edit changes the

@@ -7,6 +7,7 @@ import { api, ApiError, errorText } from '../../lib/api'
 import { meKey } from '../../lib/auth'
 import { fmt, fmtDate, slugify } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
+import { EnglishVersion } from './english'
 import type { FormState } from './useProjectForm'
 
 export interface StepProps {
@@ -19,6 +20,8 @@ export interface StepProps {
   /** Creates the draft if needed and returns it (for uploads before the first save). */
   ensureProject: () => Promise<Project | null>
   goTo: (step: number) => void
+  /** Saves pending edits now; false if the save failed. */
+  flush: () => Promise<boolean>
 }
 
 const SLUG_RE = new RegExp(LIMITS.slug.pattern)
@@ -138,7 +141,8 @@ export function BasicsStep({ form, set, project, fieldErrors, ensureProject }: S
 
 // ─── 2 · Story ────────────────────────────────────────────────────────────────
 
-export function StoryStep({ form, set, ensureProject }: StepProps) {
+export function StoryStep(props: StepProps) {
+  const { form, set, ensureProject } = props
   const { t } = useI18n()
   const ref = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -211,6 +215,7 @@ export function StoryStep({ form, set, ensureProject }: StepProps) {
         onChange={(e) => set('body', e.target.value)}
       />
       {error && <div className="text-xs text-danger">{error}</div>}
+      <EnglishVersion {...props} />
     </div>
   )
 }

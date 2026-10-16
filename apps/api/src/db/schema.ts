@@ -86,6 +86,8 @@ export const projects = sqliteTable(
     milestonesEn: text('milestones_en', { mode: 'json' }).$type<string[]>(),
     /** translationSourceHash() of the text the *_en columns were made from (or judged not to need translating). */
     enSourceHash: text('en_source_hash'),
+    /** The creator wrote the *_en columns in the editor; ProjectTranslator leaves them alone. */
+    enManual: integer('en_manual', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at').notNull().default(now),
     updatedAt: integer('updated_at').notNull().default(now),
   },

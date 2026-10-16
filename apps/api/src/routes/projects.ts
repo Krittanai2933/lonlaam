@@ -8,6 +8,7 @@ import type {
   ProjectStatus,
   StatsRange,
   SupporterFilter,
+  TranslateProjectResponse,
   UpdateProjectResponse,
   UploadCoverResponse,
   UploadImageResponse,
@@ -22,11 +23,11 @@ import { isUniqueViolation } from '../db/errors'
 import { type ProjectRow, projects } from '../db/schema'
 import { ApiError, notFound } from '../lib/errors'
 import { pageLimit, supporterPage, supporterRows } from '../lib/supporters'
-import { requestTranslation } from '../lib/translate'
+import { requestTranslation, sourceText, translateToEnglish, translationSourceHash } from '../lib/translate'
 import { msatToSats, newId } from '../lib/util'
 import { bodySchema, goalSchema, json, slugSchema, summarySchema, titleSchema } from '../lib/validate'
 import { requireCreator, requireOnboarded } from '../middleware'
-import { coverUrl, toProject } from '../serialize'
+import { coverUrl, toOwnerProject } from '../serialize'
 
 const milestonesSchema = v.pipe(
   v.array(
@@ -38,6 +39,12 @@ const milestonesSchema = v.pipe(
   v.maxLength(LIMITS.milestones.max),
   v.check((ms) => ms.every((m, i) => i === 0 || m.sats > ms[i - 1]!.sats), 'milestones must be strictly ascending by sats'),
 )
+const translationSchema = v.object({
+  title: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(LIMITS.translation.title)),
+  summary: v.pipe(v.string(), v.trim(), v.maxLength(LIMITS.translation.summary)),
+  body: v.pipe(v.string(), v.maxLength(LIMITS.translation.body)),
+  milestones: v.pipe(v.array(v.pipe(v.string(), v.trim(), v.maxLength(LIMITS.translation.label))), v.maxLength(LIMITS.milestones.max)),
+})
 const categorySchema = v.nullable(v.picklist(PROJECT_CATEGORIES))
 const endsAtSchema = v.nullable(v.pipe(v.number(), v.safeInteger(), v.minValue(0)))
 
@@ -62,6 +69,7 @@ const updateBody = v.object({
   milestones: v.optional(milestonesSchema),
   endsAt: v.optional(endsAtSchema),
   status: v.optional(v.picklist(['draft', 'active', 'closed'])),
+  translation: v.optional(v.nullable(translationSchema)),
 })
 
 const TRANSITIONS: Record<ProjectStatus, readonly ProjectStatus[]> = {
@@ -90,7 +98,7 @@ async function ownProject(c: Context<AppEnv>): Promise<ProjectRow> {
   return row
 }
 
-const respond = (c: Context<AppEnv>, row: ProjectRow) => toProject(row, c.var.creator, mediaBase(c.env, c.req.url))
+const respond = (c: Context<AppEnv>, row: ProjectRow) => toOwnerProject(row, c.var.creator, mediaBase(c.env, c.req.url))
 
 /** Validates an image upload and streams it into R2 under `prefix/<projectId>/`. */
 async function putImage(c: Context<AppEnv>, prefix: 'covers' | 'images', projectId: string) {
@@ -154,14 +162,14 @@ export const projectRoutes = new Hono<AppEnv>()
           updatedAt: now,
         })
         .returning()
-      return c.json(respond(c, row!) satisfies CreateProjectResponse, 201)
+      return c.json((await respond(c, row!)) satisfies CreateProjectResponse, 201)
     } catch (e) {
       if (isUniqueViolation(e)) throw new ApiError(409, 'conflict', 'slug is taken')
       throw e
     }
   })
 
-  .get('/:id', async (c) => c.json(respond(c, await ownProject(c)) satisfies GetProjectResponse))
+  .get('/:id', async (c) => c.json((await respond(c, await ownProject(c))) satisfies GetProjectResponse))
 
   .patch('/:id', writeLimit, json(updateBody), async (c) => {
     const body = c.req.valid('json')
@@ -209,11 +217,33 @@ export const projectRoutes = new Hono<AppEnv>()
       if (body.status === 'active' && current.publishedAt === null) patch.publishedAt = now
     }
 
+    if (body.translation === null && current.enManual) {
+      // Back to the automatic translation (ProjectTranslator is asked below).
+      Object.assign(patch, { enManual: false, titleEn: null, summaryEn: null, bodyEn: null, milestonesEn: null, enSourceHash: null })
+    } else if (body.translation) {
+      const tr = body.translation
+      const next = { ...current, ...patch }
+      if (tr.milestones.length !== next.milestones.length) {
+        throw new ApiError(422, 'validation_failed', 'translation needs one milestone label per milestone', [
+          { path: 'translation.milestones', message: `expected ${next.milestones.length} labels` },
+        ])
+      }
+      Object.assign(patch, {
+        enManual: true,
+        titleEn: tr.title,
+        summaryEn: tr.summary,
+        bodyEn: tr.body,
+        milestonesEn: tr.milestones,
+        // What it was written against, so the editor can tell when the Thai moves on.
+        enSourceHash: await translationSourceHash(sourceText(next)),
+      })
+    }
+
     try {
       const [row] = await c.var.db.update(projects).set(patch).where(eq(projects.id, current.id)).returning()
-      const textChanged = ['title', 'summary', 'body', 'milestones', 'status'].some((k) => k in patch)
+      const textChanged = ['title', 'summary', 'body', 'milestones', 'status', 'enManual'].some((k) => k in patch)
       if (row!.status !== 'draft' && textChanged) requestTranslation(c.env, c.executionCtx, row!.id, true)
-      return c.json(respond(c, row!) satisfies UpdateProjectResponse)
+      return c.json((await respond(c, row!)) satisfies UpdateProjectResponse)
     } catch (e) {
       if (isUniqueViolation(e)) throw new ApiError(409, 'conflict', 'slug is taken')
       throw e
@@ -231,7 +261,7 @@ export const projectRoutes = new Hono<AppEnv>()
       .where(eq(projects.id, current.id))
       .returning()
     if (current.coverKey) c.executionCtx.waitUntil(c.env.MEDIA.delete(current.coverKey))
-    return c.json(respond(c, row!) satisfies UploadCoverResponse)
+    return c.json((await respond(c, row!)) satisfies UploadCoverResponse)
   })
 
   .delete('/:id/cover', async (c) => {
@@ -242,7 +272,20 @@ export const projectRoutes = new Hono<AppEnv>()
       .where(eq(projects.id, current.id))
       .returning()
     if (current.coverKey) c.executionCtx.waitUntil(c.env.MEDIA.delete(current.coverKey))
-    return c.json(respond(c, row!) satisfies UploadCoverResponse)
+    return c.json((await respond(c, row!)) satisfies UploadCoverResponse)
+  })
+
+  // Automatic translation for the editor's English version; nothing is stored.
+  .post('/:id/translate', writeLimit, async (c) => {
+    const current = await ownProject(c)
+    const apiKey = c.env.ANTHROPIC_API_KEY
+    if (!apiKey) throw new ApiError(503, 'translation_unavailable', 'automatic translation is switched off')
+    try {
+      return c.json((await translateToEnglish(apiKey, sourceText(current))) satisfies TranslateProjectResponse)
+    } catch (e) {
+      console.warn('translate (editor) failed', { project: current.id, error: e instanceof Error ? e.message : String(e) })
+      throw new ApiError(503, 'translation_unavailable', 'automatic translation failed, try again')
+    }
   })
 
   // Inline story images; never deleted automatically (old story revisions may still link them).

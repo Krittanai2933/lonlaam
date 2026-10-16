@@ -53,7 +53,7 @@ export default function ProjectPage() {
   const translatable = lang === 'en' && project.data.translation !== null
   const p = showOriginal ? project.data : localized(project.data, lang)
   const View = desktop ? DesktopProject : MobileProject
-  const translation = translatable ? { original: showOriginal, toggle: () => setShowOriginal((v) => !v) } : null
+  const translation = translatable ? { original: showOriginal, byCreator: project.data.translation?.by === 'creator', toggle: () => setShowOriginal((v) => !v) } : null
   if (previewId)
     return (
       <PreviewCtx.Provider value={previewId}>
@@ -72,7 +72,7 @@ export default function ProjectPage() {
 }
 
 /** Set when the page shows (or can show) the English machine translation. */
-const TranslationCtx = createContext<{ original: boolean; toggle: () => void } | null>(null)
+const TranslationCtx = createContext<{ original: boolean; byCreator: boolean; toggle: () => void } | null>(null)
 
 function TranslationNote({ className }: { className?: string }) {
   const { t } = useI18n()
@@ -80,7 +80,7 @@ function TranslationNote({ className }: { className?: string }) {
   if (!tr) return null
   return (
     <div className={cx('flex flex-wrap items-center gap-x-2 text-xs text-neutral-600', className)}>
-      {!tr.original && <span>{t.machineTranslated}</span>}
+      {!tr.original && !tr.byCreator && <span>{t.machineTranslated}</span>}
       <button type="button" className="cursor-pointer text-accent-700 underline underline-offset-2" onClick={tr.toggle}>
         {tr.original ? t.showTranslation : t.showOriginal}
       </button>

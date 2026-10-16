@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `en_manual` integer DEFAULT false NOT NULL;
