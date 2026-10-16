@@ -1,4 +1,4 @@
-import type { Milestone, Project, ProjectCategory, UpdateProjectRequest } from '@nampu/types'
+import type { Milestone, Project, ProjectCategory, ProjectTranslationInput, UpdateProjectRequest } from '@nampu/types'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError } from '../../lib/api'
@@ -12,9 +12,36 @@ export interface FormState {
   goalSats: number | null
   endsAt: number | null
   milestones: Milestone[]
+  /** The creator's own English version; null = readers get the automatic translation. */
+  en: EnglishForm | null
 }
 
-export const emptyForm: FormState = { title: '', slug: '', summary: '', body: '', category: null, goalSats: null, endsAt: null, milestones: [] }
+export interface EnglishForm {
+  title: string
+  summary: string
+  body: string
+  /** English milestone labels keyed by sats (milestone sats are unique), so reordering keeps them. */
+  milestones: Record<number, string>
+}
+
+export const emptyForm: FormState = { title: '', slug: '', summary: '', body: '', category: null, goalSats: null, endsAt: null, milestones: [], en: null }
+
+/** Fill the English form from a translation (labels matched to milestones by position). */
+export const englishForm = (tr: ProjectTranslationInput, milestones: Milestone[]): EnglishForm => ({
+  title: tr.title,
+  summary: tr.summary,
+  body: tr.body,
+  milestones: Object.fromEntries(milestones.map((m, i) => [m.sats, tr.milestones[i] ?? ''])),
+})
+
+/** What PATCH sends as `translation`: one label per (cleaned) milestone. */
+export const translationInput = (f: FormState): ProjectTranslationInput | null =>
+  f.en && {
+    title: f.en.title.trim(),
+    summary: f.en.summary.trim(),
+    body: f.en.body,
+    milestones: cleanMilestones(f.milestones).map((m) => f.en!.milestones[m.sats]?.trim() ?? ''),
+  }
 
 export const formFromProject = (p: Project): FormState => ({
   title: p.title,
@@ -25,6 +52,11 @@ export const formFromProject = (p: Project): FormState => ({
   goalSats: p.goalSats,
   endsAt: p.endsAt,
   milestones: p.milestones,
+  en:
+    p.translation?.by === 'creator'
+      ? // Labels the creator left empty come back as the original; show them empty again.
+        englishForm({ ...p.translation, milestones: p.translation.milestones.map((m, i) => (m.label === p.milestones[i]?.label ? '' : m.label)) }, p.milestones)
+      : null,
 })
 
 /** Milestones being edited may be incomplete; only send the valid, sorted ones. */
@@ -47,6 +79,10 @@ function diff(a: FormState, b: FormState): UpdateProjectRequest {
   const ma = JSON.stringify(cleanMilestones(a.milestones))
   const mb = JSON.stringify(cleanMilestones(b.milestones))
   if (ma !== mb) out.milestones = cleanMilestones(b.milestones)
+  // English needs a title; until it has one, hold the change back.
+  const ta = translationInput(a)
+  const tb = translationInput(b)
+  if (JSON.stringify(ta) !== JSON.stringify(tb) && (tb === null || tb.title)) out.translation = tb
   return out
 }
 

@@ -121,7 +121,7 @@ function Editor({ project }: { project: Project | undefined }) {
     }
   }
 
-  const stepProps: StepProps = { form, set, project, creator, desktop, fieldErrors, ensureProject, goTo }
+  const stepProps: StepProps = { form, set, project, creator, desktop, fieldErrors, ensureProject, goTo, flush }
   const content = [
     <BasicsStep key="b" {...stepProps} />,
     <StoryStep key="s" {...stepProps} />,

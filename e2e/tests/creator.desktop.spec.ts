@@ -1,4 +1,5 @@
-import { expect, seedCreator, seedProject, signInAs, test, wallet } from '../fixtures'
+import type { Project } from '@nampu/types'
+import { call, expect, seedCreator, seedProject, signInAs, test, wallet } from '../fixtures'
 import { readFileSync } from 'node:fs'
 
 // 5b (dashboard table) and 6b (editor with sidebar + live preview).
@@ -66,4 +67,50 @@ test('editor: preview opens the full page of a draft, only for its owner', async
   // The public page still hides the draft.
   await tab.goto(`/p/${p.slug}`)
   await expect(tab.getByText('ไม่พบโปรเจกต์')).toBeVisible()
+})
+
+test('editor: the creator writes their own English version', async ({ page, browser }) => {
+  const c = await seedCreator()
+  const p = await seedProject(c.token, { title: 'ห้องสมุดชุมชน', body: 'เรื่องราวภาษาไทย' })
+  await signInAs(page, c.token)
+  await page.goto(`/projects/${p.id}/edit?step=1`)
+  page.on('dialog', (d) => void d.accept())
+
+  // No API key locally, so automatic translation fails and the fields start empty.
+  await page.getByRole('button', { name: 'เขียนภาษาอังกฤษเอง' }).click()
+  await expect(page.getByText('แปลอัตโนมัติไม่ได้ตอนนี้')).toBeVisible()
+  await page.getByLabel('ชื่อโปรเจกต์ (English)').fill('Community Library')
+  await page.getByLabel('คำโปรยสั้นๆ (English)').fill('Books for everyone')
+  await page.getByLabel('เรื่องราว (English)').fill('Our story in English')
+  await page.getByLabel(/10,000 sats/).fill('First step')
+  const saved = () => call<Project>('GET', `/api/projects/${p.id}`, { token: c.token })
+  await expect.poll(async () => (await saved()).translation?.milestones[0]?.label).toBe('First step')
+
+  // English readers get the creator's version, without the "automatically translated" note.
+  const reader = await browser.newPage()
+  await reader.addInitScript(() => localStorage.setItem('nampu.lang', 'en'))
+  await reader.goto(`/p/${p.slug}`)
+  await expect(reader.getByRole('heading', { name: 'Community Library' })).toBeVisible()
+  await expect(reader.getByText('Our story in English')).toBeVisible()
+  await expect(reader.getByText('First step')).toBeVisible()
+  await expect(reader.getByText('Automatically translated from Thai')).toHaveCount(0)
+  await reader.getByRole('button', { name: 'Show original' }).click()
+  await expect(reader.getByRole('heading', { name: 'ห้องสมุดชุมชน' })).toBeVisible()
+
+  // Changing the Thai afterwards flags the English for review.
+  await page.goto(`/projects/${p.id}/edit?step=1`)
+  await expect(page.getByLabel('ชื่อโปรเจกต์ (English)')).toHaveValue('Community Library')
+  await page.getByRole('textbox', { name: 'เรื่องราว', exact: true }).fill('เรื่องราวภาษาไทยฉบับแก้')
+  await expect(page.getByText('คุณแก้ภาษาไทยหลังจากเขียนภาษาอังกฤษไว้')).toBeVisible({ timeout: 10_000 })
+
+  // Back to automatic: the creator's English is gone (and nothing translates it locally).
+  await page.getByRole('button', { name: 'กลับไปใช้คำแปลอัตโนมัติ' }).click()
+  await expect(page.getByRole('button', { name: 'เขียนภาษาอังกฤษเอง' })).toBeVisible()
+  await expect.poll(async () => (await saved()).translation).toBeNull()
+  // The public response is cacheable for 10s.
+  await expect(async () => {
+    await reader.reload()
+    await expect(reader.getByRole('heading', { name: 'ห้องสมุดชุมชน' })).toBeVisible({ timeout: 1000 })
+  }).toPass({ timeout: 20_000 })
+  await reader.close()
 })

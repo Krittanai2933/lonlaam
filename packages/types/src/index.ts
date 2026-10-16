@@ -20,6 +20,8 @@ export const LIMITS = {
   supporterName: { max: 64 },
   comment: { max: 280 },
   milestones: { max: 10, label: { min: 1, max: 120 } },
+  /** English versions run longer than Thai, so they get more room. */
+  translation: { title: 200, summary: 280, body: 30_000, label: 200 },
   /** Hard cap per invoice, independent of what the creator's wallet allows. */
   invoiceSats: { min: 1, max: 10_000_000 },
   goalSats: { min: 1, max: 2_100_000_000_000_000 },
@@ -66,6 +68,8 @@ export type ErrorCode =
   | 'sprinkle_unavailable'
   /** Fewer projects are accepting payments than the sprinkle asked for. */
   | 'not_enough_projects'
+  /** Automatic translation is switched off (no API key) or failed. */
+  | 'translation_unavailable'
   | 'internal'
 
 export interface ApiErrorBody {
@@ -229,18 +233,31 @@ export interface PublicProject extends ProjectStats {
 
 export interface ProjectTranslation {
   lang: 'en'
+  /** 'creator': written by the creator in the editor. 'machine': automatic translation. */
+  by: 'creator' | 'machine'
   title: string
   summary: string
   /** Markdown, like PublicProject.body. */
   body: string
-  /** Same order and length as PublicProject.milestones. */
+  /** Same order and length as PublicProject.milestones (labels without a translation stay as written). */
   milestones: Milestone[]
+}
+
+/** The creator's own English version (UpdateProjectRequest.translation). */
+export interface ProjectTranslationInput {
+  title: string
+  summary: string
+  body: string
+  /** One label per milestone, in milestone order; '' = keep the original label. */
+  milestones: string[]
 }
 
 /** Owner view: includes drafts. */
 export interface Project extends Omit<PublicProject, 'status'> {
   status: ProjectStatus
   updatedAt: number
+  /** The creator wrote the English version, and the Thai text has changed since. */
+  translationStale: boolean
 }
 
 /** POST /api/projects — creates a draft. Requires onboarding. */
@@ -271,8 +288,20 @@ export interface UpdateProjectRequest {
   milestones?: Milestone[]
   endsAt?: number | null
   status?: ProjectStatus
+  /**
+   * The creator's own English version, which replaces the automatic translation and is never
+   * overwritten by it. null = go back to the automatic translation. milestones must have one
+   * entry per milestone (after this update).
+   */
+  translation?: ProjectTranslationInput | null
 }
 export type UpdateProjectResponse = Project
+
+/**
+ * POST /api/projects/:id/translate — automatic English translation of the project's saved
+ * text, for the creator to edit. Nothing is stored. 503 translation_unavailable when off.
+ */
+export type TranslateProjectResponse = ProjectTranslationInput
 
 /** GET /api/me/projects */
 export interface ListMyProjectsResponse {

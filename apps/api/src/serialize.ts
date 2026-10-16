@@ -1,5 +1,6 @@
 import type { Creator, Invoice, Project, ProjectTranslation, PublicProject, Supporter } from '@nampu/types'
 import type { CreatorRow, InvoiceRow, ProjectRow } from './db/schema'
+import { sourceText, translationSourceHash } from './lib/translate'
 import { msatToSats } from './lib/util'
 
 /** `media` is mediaBase(): the R2 public domain or <origin>/media. */
@@ -27,19 +28,20 @@ export function toCreator(r: CreatorRow): Creator {
 export type ProjectCreator = Pick<CreatorRow, 'handle' | 'displayName' | 'npub'>
 
 function toTranslation(r: ProjectRow, media: string): ProjectTranslation | null {
-  const labels = r.milestonesEn
-  // A milestone added or removed since the last translation: wait for the next one.
-  if (r.titleEn === null || !labels || labels.length !== r.milestones.length) return null
+  if (r.titleEn === null) return null
+  // Milestones added or removed since the translation keep their original labels until the next one.
+  const labels = r.milestonesEn?.length === r.milestones.length ? r.milestonesEn : []
   return {
     lang: 'en',
+    by: r.enManual ? 'creator' : 'machine',
     title: r.titleEn,
     summary: r.summaryEn ?? '',
     body: rewriteMedia(r.bodyEn ?? '', media),
-    milestones: r.milestones.map((m, i) => ({ sats: m.sats, label: labels[i]! })),
+    milestones: r.milestones.map((m, i) => ({ sats: m.sats, label: labels[i] || m.label })),
   }
 }
 
-export function toProject(r: ProjectRow, creator: ProjectCreator, media: string): Project {
+export function toProject(r: ProjectRow, creator: ProjectCreator, media: string): Omit<Project, 'translationStale'> {
   return {
     id: r.id,
     slug: r.slug,
@@ -60,6 +62,12 @@ export function toProject(r: ProjectRow, creator: ProjectCreator, media: string)
     updatedAt: r.updatedAt,
     translation: toTranslation(r, media),
   }
+}
+
+/** Owner view, including whether the creator's English version predates their last Thai edit. */
+export async function toOwnerProject(r: ProjectRow, creator: ProjectCreator, media: string): Promise<Project> {
+  const translationStale = r.enManual && r.enSourceHash !== (await translationSourceHash(sourceText(r)))
+  return { ...toProject(r, creator, media), translationStale }
 }
 
 export function toPublicProject(r: ProjectRow, creator: ProjectCreator, media: string): PublicProject {

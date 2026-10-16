@@ -16,6 +16,14 @@ const MODEL = 'claude-haiku-5-5'
 /** Bump when the prompt or model changes so existing translations are redone on their next edit or view. */
 const VERSION = 'v1'
 
+/** The creator's (original-language) text of a project row. */
+export const sourceText = (r: { title: string; summary: string; body: string; milestones: { label: string }[] }): TranslationText => ({
+  title: r.title,
+  summary: r.summary,
+  body: r.body,
+  milestones: r.milestones.map((m) => m.label),
+})
+
 /** Hash of everything a translation depends on; equal hash = the stored translation is current. */
 export const translationSourceHash = (t: TranslationText) =>
   sha256Hex(JSON.stringify([VERSION, t.title, t.summary, t.body, t.milestones]))

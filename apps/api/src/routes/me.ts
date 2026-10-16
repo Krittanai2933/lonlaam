@@ -11,7 +11,7 @@ import { decodeNpub } from '../lib/bech32'
 import { ApiError } from '../lib/errors'
 import { displayNameSchema, handleSchema, json, lightningAddressSchema } from '../lib/validate'
 import { requireCreator, requireOnboarded } from '../middleware'
-import { toCreator, toProject } from '../serialize'
+import { toCreator, toOwnerProject } from '../serialize'
 
 const updateCreatorBody = v.object({
   handle: v.optional(handleSchema),
@@ -76,5 +76,5 @@ export const meRoutes = new Hono<AppEnv>()
       .orderBy(desc(projects.createdAt))
       .limit(100)
     const media = mediaBase(c.env, c.req.url)
-    return c.json({ projects: rows.map((r) => toProject(r, c.var.creator, media)) } satisfies ListMyProjectsResponse)
+    return c.json({ projects: await Promise.all(rows.map((r) => toOwnerProject(r, c.var.creator, media))) } satisfies ListMyProjectsResponse)
   })
