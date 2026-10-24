@@ -311,7 +311,7 @@ function ErrorPanel({ c }: { c: Contribute }) {
         <Icon name="alert" size={32} style={{ strokeWidth: 1.3 }} />
       </div>
       <div className="font-heading text-[22px] font-semibold">{t.errTitle}</div>
-      <p className="m-0 max-w-[300px] text-sm text-neutral-700">{c.error instanceof ApiError && c.error.code !== 'lnurl_error' ? errorText(c.error, t) : t.errBody}</p>
+      <p className="m-0 max-w-[300px] text-sm text-neutral-700">{c.error instanceof ApiError && c.error.code !== 'lnurl_error' && c.error.code !== 'lnurl_cannot_receive' ? errorText(c.error, t) : t.errBody}</p>
       <code className="text-[11px] text-neutral-600">{code}</code>
       <Button variant="cta" icon="refresh" className="h-12 w-full text-base" onClick={() => void c.create()}>
         {t.retry}

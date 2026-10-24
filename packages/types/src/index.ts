@@ -56,6 +56,8 @@ export type ErrorCode =
   | 'lightning_address_missing'
   /** The Lightning Address could not be resolved, or its LNURL-pay response is invalid. */
   | 'lnurl_error'
+  /** The Lightning Address resolves but advertises maxSendable 0, e.g. an Alby account with no wallet connected. */
+  | 'lnurl_cannot_receive'
   /** The creator's wallet does not return a LUD-21 `verify` URL, so payments cannot be confirmed. */
   | 'lnurl_verify_unsupported'
   /** Amount is outside the wallet's minSendable/maxSendable or LIMITS.invoiceSats. */

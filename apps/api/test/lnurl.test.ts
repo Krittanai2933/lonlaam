@@ -50,6 +50,11 @@ describe('LNURL-pay', () => {
     await expect(fetchPayRequest('alice@example.com', secure)).rejects.toMatchObject({ code: 'lnurl_error' })
   })
 
+  it('flags maxSendable 0 as an address that cannot receive', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ ...payReq, maxSendable: 0 }))
+    await expect(fetchPayRequest('alice@example.com', secure)).rejects.toMatchObject({ code: 'lnurl_cannot_receive' })
+  })
+
   it('passes amount, trims the comment and requires a verify URL', async () => {
     const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ pr: 'lnbc1...', verify: 'https://example.com/v/1' }))
     const pay = { callback: payReq.callback, minSendable: 1000, maxSendable: 1_000_000, commentAllowed: 5 }
