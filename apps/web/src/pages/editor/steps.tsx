@@ -417,7 +417,15 @@ export function PayoutStep({ creator, goTo, doneFlags }: StepProps & { doneFlags
       qc.setQueryData(meKey, await api.updateMe({ lightningAddress: v || null }))
       setLnState(v ? { kind: 'ok' } : { kind: 'idle' })
     } catch (e) {
-      setLnState({ kind: 'error', msg: e instanceof ApiError ? errorText(e, t) : t.somethingWrong })
+      const msg =
+        e instanceof ApiError && e.code === 'lnurl_cannot_receive'
+          ? t.lnCannotReceive
+          : e instanceof ApiError && e.code === 'lnurl_verify_unsupported'
+            ? t.lnVerifyUnsupported
+            : e instanceof ApiError
+              ? errorText(e, t)
+              : t.somethingWrong
+      setLnState({ kind: 'error', msg })
     }
   }
   const saveNpub = async () => {

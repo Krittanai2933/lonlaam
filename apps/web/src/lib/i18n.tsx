@@ -90,6 +90,8 @@ const th = {
   lnOk: 'ตรวจสอบแล้ว รับ sats ได้',
   lnChecking: 'กำลังตรวจสอบ…', // (added)
   lnFormat: 'รูปแบบต้องเป็น name@domain.com',
+  lnCannotReceive: 'Lightning Address นี้ยังรับ sats ไม่ได้ ถ้าใช้ getalby.com ต้องเชื่อมกระเป๋า (เช่น Alby Hub) กับบัญชีก่อน หรือใช้ Blink หรือ Coinos แทน',
+  lnVerifyUnsupported: 'กระเป๋านี้ไม่รองรับการยืนยันการชำระเงิน (LUD-21) เช่น Wallet of Satoshi ลองใช้ Blink, Coinos หรือ Alby แทน',
   fNpub: 'Nostr npub (สำหรับประกาศและ zap)',
   review: 'ตรวจทาน',
   savedAgo: 'บันทึกอัตโนมัติ {ago}ที่แล้ว',
@@ -351,6 +353,8 @@ const en: Dict = {
   lnOk: 'Verified, can receive sats',
   lnChecking: 'Checking…',
   lnFormat: 'Must look like name@domain.com',
+  lnCannotReceive: "This Lightning Address can't receive sats yet. On getalby.com, connect a wallet (such as Alby Hub) to your account first, or use Blink or Coinos instead.",
+  lnVerifyUnsupported: "This wallet doesn't support payment verification (LUD-21), e.g. Wallet of Satoshi. Try Blink, Coinos or Alby instead.",
   fNpub: 'Nostr npub (for announcements and zaps)',
   review: 'Review',
   savedAgo: 'Autosaved {ago} ago',

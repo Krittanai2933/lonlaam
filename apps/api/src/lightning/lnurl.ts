@@ -83,6 +83,10 @@ export async function fetchPayRequest(address: string, opts: LnurlOptions): Prom
   const minSendable = Number(r.minSendable)
   const maxSendable = Number(r.maxSendable)
   if (!Number.isSafeInteger(minSendable) || !Number.isSafeInteger(maxSendable) || minSendable < 1 || maxSendable < minSendable) {
+    // getalby.com (and others) advertise maxSendable 0 when no wallet is connected to the account.
+    if (maxSendable === 0) {
+      throw new ApiError(422, 'lnurl_cannot_receive', 'LNURL: this Lightning Address cannot receive payments right now (maxSendable is 0)')
+    }
     throw lnurlError('invalid min/maxSendable')
   }
   const commentAllowed = Number.isSafeInteger(Number(r.commentAllowed)) ? Math.max(0, Number(r.commentAllowed)) : 0
