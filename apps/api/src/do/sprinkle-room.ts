@@ -1,8 +1,9 @@
 import { DurableObject } from 'cloudflare:workers'
 import { and, asc, eq } from 'drizzle-orm'
-import { getDb, type Db } from '../context'
+import { getDb, type Db, lnurlOptions } from '../context'
 import { creators, invoices, projects, type SprinklePayoutRow, type SprinkleRow, sprinklePayouts, sprinkles } from '../db/schema'
-import { verifyPayment } from '../lightning/lnurl'
+import { Bolt11Error, decodeBolt11 } from '../lightning/bolt11'
+import { fetchPayRequest, requestPlainInvoice, verifyPayment } from '../lightning/lnurl'
 import { NwcError, NwcWallet } from '../lightning/nwc'
 import { ApiError } from '../lib/errors'
 import { createProjectInvoice } from '../lib/project-invoice'
@@ -17,6 +18,8 @@ import { hexToBytes, msatToSats, newId, sha256Hex } from '../lib/util'
  *    Lightning Address (createProjectInvoice, same as a direct payment) and pay them
  *    concurrently with NWC pay_invoice. The project's own Durable Object then sees each
  *    settle via LUD-21 and counts it like any other supporter payment.
+ * 3. done, with a platform share (monthly tipPercent): forward it to PLATFORM_ADDRESS the
+ *    same way (fetch an invoice, pay it, look it up when the answer is lost).
  *
  * All state lives in D1 (sprinkles / sprinkle_payouts); each alarm run reloads it, so a
  * crash or retried alarm just picks up where the last one stopped. Paying the same BOLT11
@@ -38,6 +41,10 @@ const RECHECK_MS = 3_000
 const WALLET_BACKOFF_MS = [10_000, 30_000, 60_000, 5 * 60_000]
 /** These mean the platform wallet itself can't pay right now, not that this project is bad. */
 const WALLET_ERRORS = new Set(['INSUFFICIENT_BALANCE', 'QUOTA_EXCEEDED', 'RATE_LIMITED', 'RESTRICTED', 'UNAUTHORIZED', 'NOT_IMPLEMENTED'])
+
+/** Getting or paying the platform-share invoice failed for good this many times: keep it in the wallet. */
+const SHARE_MAX_ATTEMPTS = 5
+const SHARE_RETRY_MS = [60_000, 10 * 60_000, 60 * 60_000, 6 * 60 * 60_000]
 
 const pollInterval = (ageMs: number) => (ageMs < 2 * 60_000 ? 3_000 : 10_000)
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -64,7 +71,8 @@ export class SprinkleRoom extends DurableObject<Env> {
     if (!id) return
     const db = getDb(this.env.DB)
     const s = await db.query.sprinkles.findFirst({ where: eq(sprinkles.id, id) })
-    if (!s || s.status === 'done' || s.status === 'expired') return
+    if (!s || s.status === 'expired') return
+    if (s.status === 'done' && s.shareStatus !== 'pending' && s.shareStatus !== 'paying') return
 
     const conn = nwcConnection(this.env)
     if (!conn) {
@@ -75,7 +83,8 @@ export class SprinkleRoom extends DurableObject<Env> {
     const wallet = new NwcWallet(conn)
     this.progressed = false
     try {
-      const next = s.status === 'pending' ? await this.checkPayment(db, wallet, s) : await this.distribute(db, wallet, s)
+      const next =
+        s.status === 'pending' ? await this.checkPayment(db, wallet, s) : s.status === 'distributing' ? await this.distribute(db, wallet, s) : await this.forwardShare(db, wallet, s)
       // Only real progress resets the backoff; a run that merely waited must not.
       if (this.progressed) await this.ctx.storage.put('walletFailures', 0)
       if (next !== null) await this.ctx.storage.setAlarm(Math.max(next, Date.now() + 200))
@@ -256,17 +265,103 @@ export class SprinkleRoom extends DurableObject<Env> {
     return 'unknown'
   }
 
-  private async finish(db: Db, s: SprinkleRow, reason: string): Promise<null> {
+  private async finish(db: Db, s: SprinkleRow, reason: string): Promise<number | null> {
     const payouts = await this.payouts(db, s.id)
     const paidMsat = payouts.filter((p) => p.status === 'paid').reduce((sum, p) => sum + p.amountMsat, 0)
     await db.update(sprinkles).set({ status: 'done', completedAt: Date.now() }).where(eq(sprinkles.id, s.id))
     this.progressed = true
     console.log('sprinkle: done', { sprinkle: s.id, reason, paidSats: msatToSats(paidMsat), keptSats: msatToSats(s.amountMsat - paidMsat) })
+    // The platform's share goes out after the projects, in the next run.
+    return s.shareStatus === 'pending' ? Date.now() : null
+  }
+
+  // ─── Platform share ───────────────────────────────────────────────────────────
+
+  /** Sends the share the supporter left for the platform to PLATFORM_ADDRESS. */
+  private async forwardShare(db: Db, wallet: NwcWallet, s: SprinkleRow): Promise<number | null> {
+    const set = (v: Partial<SprinkleRow>) => db.update(sprinkles).set(v).where(eq(sprinkles.id, s.id))
+    const address = this.env.PLATFORM_ADDRESS
+    if (!address) {
+      await set({ shareStatus: 'failed', shareError: 'PLATFORM_ADDRESS is not set' })
+      return null
+    }
+
+    // A payment was sent earlier (maybe still in flight): find out before anything else.
+    if (s.shareStatus === 'paying' && s.shareBolt11 && s.sharePaymentHash) {
+      const state = await this.lookup(wallet, s.sharePaymentHash)
+      if (state === 'settled') return this.sharePaid(set, s)
+      if (state === 'pending' || state === 'unknown') return Date.now() + 30_000
+      // Definitely not paid: re-send the same invoice (safe) while it's valid, else get a new one.
+      if (invoiceValid(s.shareBolt11)) return this.payShare(wallet, s, s.shareBolt11, s.sharePaymentHash, set)
+      await set({ shareStatus: 'pending', shareBolt11: null, sharePaymentHash: null })
+      return Date.now()
+    }
+
+    let bolt11: string
+    let paymentHash: string
+    try {
+      const pay = await fetchPayRequest(address, lnurlOptions(this.env))
+      if (s.shareMsat < pay.minSendable || s.shareMsat > pay.maxSendable) {
+        await set({ shareStatus: 'failed', shareError: `amount outside ${pay.minSendable}–${pay.maxSendable} msat` })
+        return null
+      }
+      bolt11 = await requestPlainInvoice(pay, s.shareMsat, `${this.env.SITE_NAME} · monthly share (${s.id})`)
+      const d = decodeBolt11(bolt11)
+      if (d.amountMsat !== s.shareMsat) throw new Error('invoice amount does not match')
+      paymentHash = d.paymentHash
+    } catch (e) {
+      return this.shareFailed(set, s, e instanceof Bolt11Error ? `invalid invoice: ${e.message}` : errText(e))
+    }
+    // Record the invoice before paying, so an interrupted run knows a payment may be in flight.
+    await set({ shareStatus: 'paying', shareBolt11: bolt11, sharePaymentHash: paymentHash })
+    return this.payShare(wallet, s, bolt11, paymentHash, set)
+  }
+
+  private async payShare(wallet: NwcWallet, s: SprinkleRow, bolt11: string, paymentHash: string, set: (v: Partial<SprinkleRow>) => Promise<unknown>): Promise<number | null> {
+    try {
+      const { preimage } = await (await wallet.client()).payInvoice(bolt11)
+      const bytes = hexToBytes(preimage)
+      if (bytes && (await sha256Hex(bytes)) === paymentHash) return this.sharePaid(set, s)
+      return Date.now() + RECHECK_MS // bogus preimage: let lookup_invoice decide
+    } catch (e) {
+      if (!(e instanceof NwcError)) throw e
+      if (e.ambiguous) return Date.now() + RECHECK_MS // no answer: look it up next run
+      if (WALLET_ERRORS.has(e.code)) throw e // the wallet can't pay right now: back off, look up, re-send
+      return this.shareFailed(set, s, e.message, { shareBolt11: null, sharePaymentHash: null })
+    }
+  }
+
+  private async sharePaid(set: (v: Partial<SprinkleRow>) => Promise<unknown>, s: SprinkleRow): Promise<null> {
+    this.progressed = true
+    await set({ shareStatus: 'paid', shareError: null })
+    console.log('sprinkle: platform share forwarded', { sprinkle: s.id, sats: msatToSats(s.shareMsat) })
     return null
+  }
+
+  /** A definite failure: retry later with a fresh invoice, or give up and keep it in the wallet. */
+  private async shareFailed(set: (v: Partial<SprinkleRow>) => Promise<unknown>, s: SprinkleRow, error: string, extra: Partial<SprinkleRow> = {}): Promise<number | null> {
+    const attempts = s.shareAttempts + 1
+    const done = attempts >= SHARE_MAX_ATTEMPTS
+    await set({ ...extra, shareStatus: done ? 'failed' : 'pending', shareAttempts: attempts, shareError: error.slice(0, 300) })
+    if (done) {
+      console.error('sprinkle: platform share not forwarded, kept in the wallet', { sprinkle: s.id, sats: msatToSats(s.shareMsat), error })
+      return null
+    }
+    return Date.now() + SHARE_RETRY_MS[attempts - 1]!
   }
 
   private payouts(db: Db, sprinkleId: string) {
     return db.select().from(sprinklePayouts).where(eq(sprinklePayouts.sprinkleId, sprinkleId)).orderBy(asc(sprinklePayouts.createdAt), asc(sprinklePayouts.id))
+  }
+}
+
+/** Still worth paying: more than a minute before the BOLT11 expires. */
+function invoiceValid(bolt11: string): boolean {
+  try {
+    const d = decodeBolt11(bolt11)
+    return (d.timestamp + d.expiry) * 1000 > Date.now() + 60_000
+  } catch {
+    return false
   }
 }
 

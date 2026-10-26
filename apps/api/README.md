@@ -75,8 +75,9 @@ creator sets their address (`PATCH /api/me` probes by requesting a throwaway inv
 
 Any logged-in account (no creator onboarding) can set a monthly amount (`PUT /api/monthly`). Each month
 is one sprinkle with a random project count (`projectsMin`–`projectsMax`) and a random split
-(`sprinkles.shares_msat`); the supporter can also leave a share for the platform (`tipPercent`), which
-simply stays in the platform wallet.
+(`sprinkles.shares_msat`); the supporter can also leave a share for the platform (`tipPercent`).
+Once the projects are paid, `SprinkleRoom` forwards that share from the platform wallet to
+`PLATFORM_ADDRESS` (LNURL-pay, no LUD-21 needed; retried up to 5 times, then kept in the wallet).
 
 1. Creating the plan charges the first month at once; after that the cron (`*/15 * * * *`, `runMonthly`)
    starts plans whose `next_charge_at` has passed, on the same day of each month (UTC).

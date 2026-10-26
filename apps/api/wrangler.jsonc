@@ -87,7 +87,10 @@
     "ALLOW_INSECURE_LNURL": "false",
     // Sender for monthly-sprinkle emails (Resend; the domain must be verified there). Email is
     // off until the secret RESEND_API_KEY is set.
-    "EMAIL_FROM": "ล้นหลาม <noreply@lonlaam.com>"
+    "EMAIL_FROM": "ล้นหลาม <noreply@lonlaam.com>",
+    // Lightning Address that receives the share supporters leave for Lonlaam on monthly sprinkles
+    // (forwarded from the platform wallet after the projects are paid). Empty = keep it there.
+    "PLATFORM_ADDRESS": "krittanai@peanjaroen.com"
     // Secret NWC_ENC_KEY (64 hex chars, e.g. `openssl rand -hex 32`) encrypts supporters' NWC
     // connection strings and turns on automatic monthly payment. Never change it once set:
     // stored connections would stop opening and those supporters fall back to paying by hand.
@@ -106,6 +109,7 @@
         "SITE_NAME": "ล้นหลาม (dev)",
         "ALLOW_INSECURE_LNURL": "true",
         "EMAIL_FROM": "ล้นหลาม (dev) <dev@localhost>",
+        "PLATFORM_ADDRESS": "lonlaam@localhost:8790",
         // Fixed dev-only key. Email goes to the mock wallet (GET :8790/email/last) instead of Resend.
         "NWC_ENC_KEY": "6e616d70752d6465762d6f6e6c792d6e77632d656e632d6b65792d3030303030",
         "RESEND_API_KEY": "mock",
