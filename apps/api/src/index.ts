@@ -6,7 +6,9 @@ import { canonicalHost } from './lib/canonical'
 import { ApiError } from './lib/errors'
 import { authRoutes } from './routes/auth'
 import { discoverRoutes } from './routes/discover'
+import { runMonthly } from './lib/monthly'
 import { meRoutes } from './routes/me'
+import { monthlyRoutes } from './routes/monthly'
 import { projectRoutes } from './routes/projects'
 import { publicRoutes } from './routes/public'
 import { sprinkleRoutes } from './routes/sprinkles'
@@ -14,6 +16,7 @@ import { webRoutes } from './routes/web'
 
 export { ProjectRoom } from './do/project-room'
 export { SprinkleRoom } from './do/sprinkle-room'
+export { MonthlyRoom } from './do/monthly-room'
 export { ProjectTranslator } from './do/project-translator'
 
 const api = new Hono<AppEnv>()
@@ -25,6 +28,7 @@ const api = new Hono<AppEnv>()
   .route('/projects', projectRoutes)
   .route('/', publicRoutes)
   .route('/sprinkles', sprinkleRoutes)
+  .route('/monthly', monthlyRoutes)
 
 const app = new Hono<AppEnv>()
   .use(canonicalHost)
@@ -51,4 +55,8 @@ app.onError((err, c) => {
   return c.json(new ApiError(500, 'internal', 'internal error').toBody(), 500)
 })
 
-export default app
+export default {
+  fetch: app.fetch,
+  // Cron (wrangler.jsonc triggers): start monthly sprinkles that are due.
+  scheduled: (_event, env, ctx) => ctx.waitUntil(runMonthly(env)),
+} satisfies ExportedHandler<Env>

@@ -9,7 +9,11 @@
 // Controls: GET /nwc/last (latest make_invoice), POST /pay/<hash> settles it like any invoice,
 // GET /nwc/payments lists pay_invoice calls, POST /nwc/fail-next[?code=…] fails the next
 // pay_invoice (default PAYMENT_FAILED), POST /nwc/drop-next pays the next one but drops the
-// socket instead of answering (like a relay hiccup).
+// socket instead of answering (like a relay hiccup). The same connection doubles as a
+// supporter's own wallet for monthly sprinkles (it can pay the platform's invoices).
+//
+// Also stands in for Resend (RESEND_API_URL in env.dev): POST /email stores a message,
+// GET /email/last returns the latest one.
 import { createHash } from 'node:crypto'
 import { createServer } from 'node:http'
 import * as nip04 from 'nostr-tools/nip04'
@@ -23,6 +27,7 @@ const base = `http://localhost:${port}`
 const invoices = new Map() // paymentHash → { preimage, pr, settled }
 let last = null
 let failNext = false
+let lastEmail = null
 
 // ─── NWC (platform wallet) ────────────────────────────────────────────────────
 
@@ -50,6 +55,9 @@ function nwcHandle(method, params) {
     nwcKnown.add(paymentHash)
     const now = Math.floor(Date.now() / 1000)
     return { type: 'incoming', invoice: pr, payment_hash: paymentHash, amount: params.amount, created_at: now, expires_at: now + expiry }
+  }
+  if (method === 'get_info') {
+    return { alias: 'mock', network: 'regtest', methods: ['pay_invoice', 'make_invoice', 'lookup_invoice', 'get_info'] }
   }
   if (method === 'lookup_invoice') {
     const inv = nwcKnown.has(params.payment_hash) && invoices.get(params.payment_hash)
@@ -94,7 +102,7 @@ const matches = (f, ev) =>
 const publish = (ev) => {
   for (const [ws, m] of subs) for (const [id, f] of m) if (matches(f, ev)) ws.send(JSON.stringify(['EVENT', id, ev]))
 }
-const infoEvent = finalizeEvent({ kind: 13194, created_at: Math.floor(Date.now() / 1000), tags: [['encryption', 'nip44_v2 nip04']], content: 'pay_invoice make_invoice lookup_invoice' }, walletSk)
+const infoEvent = finalizeEvent({ kind: 13194, created_at: Math.floor(Date.now() / 1000), tags: [['encryption', 'nip44_v2 nip04']], content: 'pay_invoice make_invoice lookup_invoice get_info' }, walletSk)
 
 new WebSocketServer({ port: relayPort }).on('connection', (ws) => {
   subs.set(ws, new Map())
@@ -188,6 +196,17 @@ createServer((req, res) => {
     nwcDropNext = true
     return send(res, 200, { ok: true })
   }
+  if (req.method === 'POST' && a === 'email') {
+    let raw = ''
+    req.on('data', (d) => (raw += d))
+    req.on('end', () => {
+      lastEmail = { ...JSON.parse(raw), authorization: req.headers.authorization }
+      console.log(`[mock-wallet] email to ${lastEmail.to}: ${lastEmail.subject}`)
+      send(res, 200, { id: `mock-${Date.now()}` })
+    })
+    return
+  }
+  if (req.method === 'GET' && a === 'email' && b === 'last') return send(res, 200, lastEmail)
   if (req.method === 'POST' && a === 'fail-next') {
     failNext = true
     return send(res, 200, { ok: true })

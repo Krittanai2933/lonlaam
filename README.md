@@ -57,7 +57,8 @@ pnpm --filter @nampu/e2e e2e:ui            # interactive
 Covered: Nostr (NIP-07) and LNURL-auth login, onboarding, the 5-step editor with autosave and publish,
 Lightning Address LUD-21 check, dashboard live updates / search / filter / CSV / logout, goal lock,
 Discover filters, search and trending, and every contribute state (create, copy, pay, anonymous,
-cancel-confirm, amount error, expiry, node unreachable + retry). Not covered: NIP-46 remote signers and
+cancel-confirm, amount error, expiry, node unreachable + retry), and the monthly sprinkle (login without
+onboarding, auto-pay from an NWC wallet, revoked wallet → pay by hand, pause/resume, cancel). Not covered: NIP-46 remote signers and
 publishing a share note to real Nostr relays.
 
 ## Rate limits

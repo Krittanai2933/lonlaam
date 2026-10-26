@@ -6,7 +6,7 @@ import { verifyPayment } from '../lightning/lnurl'
 import { NwcError, NwcWallet } from '../lightning/nwc'
 import { ApiError } from '../lib/errors'
 import { createProjectInvoice } from '../lib/project-invoice'
-import { nwcConnection, pickProjects } from '../lib/sprinkle'
+import { missingShares, nwcConnection, pickProjects, sprinkleShares } from '../lib/sprinkle'
 import { hexToBytes, msatToSats, newId, sha256Hex } from '../lib/util'
 
 /**
@@ -120,11 +120,12 @@ export class SprinkleRoom extends DurableObject<Env> {
 
     let payouts = await this.payouts(db, s.id)
     const open = (p: SprinklePayoutRow) => p.status === 'pending' || p.status === 'paying'
-    const live = payouts.filter((p) => p.status !== 'failed')
-    if (live.length < s.projectCount) {
-      const picked = await pickProjects(db, s.projectCount - live.length, payouts.map((p) => p.projectId), s.excludeFunded)
+    // A failed payout's share goes to a newly picked project.
+    const missing = missingShares(sprinkleShares(s), payouts.filter((p) => p.status !== 'failed').map((p) => p.amountMsat))
+    if (missing.length) {
+      const picked = await pickProjects(db, missing.length, payouts.map((p) => p.projectId), s.excludeFunded)
       if (picked.length) {
-        await db.insert(sprinklePayouts).values(picked.map((projectId) => ({ id: newId(), sprinkleId: s.id, projectId, amountMsat: s.perProjectMsat })))
+        await db.insert(sprinklePayouts).values(picked.map((projectId, i) => ({ id: newId(), sprinkleId: s.id, projectId, amountMsat: missing[i]! })))
         payouts = await this.payouts(db, s.id)
       } else if (!payouts.some(open)) {
         return this.finish(db, s, 'no more eligible projects')

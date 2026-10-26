@@ -1,6 +1,6 @@
 import type { Milestone } from '@nampu/types'
 import { sql } from 'drizzle-orm'
-import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { check, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 // All timestamps are Unix epoch milliseconds. All amounts are msat unless named *_sats.
 
@@ -136,6 +136,8 @@ export const sprinkles = sqliteTable(
     amountMsat: integer('amount_msat').notNull(),
     projectCount: integer('project_count').notNull(),
     perProjectMsat: integer('per_project_msat').notNull(),
+    /** Random split (monthly): one amount per project. Null = projectCount × perProjectMsat. */
+    sharesMsat: text('shares_msat', { mode: 'json' }).$type<number[]>(),
     /** Only pick projects still short of their goal. */
     excludeFunded: integer('exclude_funded', { mode: 'boolean' }).notNull().default(false),
     supporterName: text('supporter_name'),
@@ -184,8 +186,79 @@ export const sprinklePayouts = sqliteTable(
   ],
 )
 
+/** A supporter's monthly sprinkle; at most one per account. */
+export const monthlyPlans = sqliteTable(
+  'monthly_plans',
+  {
+    id: text('id').primaryKey(),
+    creatorId: text('creator_id')
+      .notNull()
+      .unique()
+      .references(() => creators.id, { onDelete: 'cascade' }),
+    amountMsat: integer('amount_msat').notNull(),
+    projectsMin: integer('projects_min').notNull(),
+    projectsMax: integer('projects_max').notNull(),
+    excludeFunded: integer('exclude_funded', { mode: 'boolean' }).notNull().default(true),
+    /** Percent of each month kept by the platform, on top of the fee reserve. */
+    tipPercent: integer('tip_percent').notNull().default(0),
+    supporterName: text('supporter_name'),
+    comment: text('comment'),
+    /** The supporter's NWC connection string, AES-GCM sealed (lib/secretbox). Null = pay by hand. */
+    nwcSealed: text('nwc_sealed'),
+    /** Shown to the supporter: lud16 from the connection string, or the relay host. */
+    nwcLabel: text('nwc_label'),
+    status: text('status', { enum: ['active', 'paused'] }).notNull().default('active'),
+    billingDay: integer('billing_day').notNull(),
+    nextChargeAt: integer('next_charge_at').notNull(),
+    email: text('email'),
+    emailVerified: integer('email_verified', { mode: 'boolean' }).notNull().default(false),
+    /** SHA-256 of the pending verification token. */
+    emailTokenHash: text('email_token_hash'),
+    emailTokenExpiresAt: integer('email_token_expires_at'),
+    createdAt: integer('created_at').notNull().default(now),
+    updatedAt: integer('updated_at').notNull().default(now),
+  },
+  (t) => [
+    index('monthly_plans_due_idx').on(t.status, t.nextChargeAt),
+    check('monthly_plans_status_check', sql`${t.status} IN ('active', 'paused')`),
+  ],
+)
+
+/** One month of a plan, charged by MonthlyRoom through a sprinkle. */
+export const monthlyCycles = sqliteTable(
+  'monthly_cycles',
+  {
+    id: text('id').primaryKey(),
+    planId: text('plan_id')
+      .notNull()
+      .references(() => monthlyPlans.id, { onDelete: 'cascade' }),
+    dueAt: integer('due_at').notNull(),
+    /** Snapshot of the plan when the month started. */
+    amountMsat: integer('amount_msat').notNull(),
+    tipPercent: integer('tip_percent').notNull(),
+    status: text('status', { enum: ['charging', 'needs_payment', 'paid', 'missed'] }).notNull().default('charging'),
+    /** MonthlyReason, when it needs paying by hand or was missed. */
+    reason: text('reason'),
+    /** The latest sprinkle made for this month (earlier ones expired unpaid). */
+    sprinkleId: text('sprinkle_id').references(() => sprinkles.id, { onDelete: 'set null' }),
+    /** Failed automatic payment attempts. */
+    attempts: integer('attempts').notNull().default(0),
+    lastError: text('last_error'),
+    notifiedAt: integer('notified_at'),
+    createdAt: integer('created_at').notNull().default(now),
+    paidAt: integer('paid_at'),
+  },
+  (t) => [
+    uniqueIndex('monthly_cycles_plan_due_idx').on(t.planId, t.dueAt),
+    index('monthly_cycles_status_idx').on(t.status, t.createdAt),
+    check('monthly_cycles_status_check', sql`${t.status} IN ('charging', 'needs_payment', 'paid', 'missed')`),
+  ],
+)
+
 export type CreatorRow = typeof creators.$inferSelect
 export type ProjectRow = typeof projects.$inferSelect
 export type InvoiceRow = typeof invoices.$inferSelect
 export type SprinkleRow = typeof sprinkles.$inferSelect
 export type SprinklePayoutRow = typeof sprinklePayouts.$inferSelect
+export type MonthlyPlanRow = typeof monthlyPlans.$inferSelect
+export type MonthlyCycleRow = typeof monthlyCycles.$inferSelect
