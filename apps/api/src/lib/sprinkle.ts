@@ -59,13 +59,22 @@ export async function pickProjects(db: Db, n: number, exclude: string[], exclude
 
 /**
  * Makes the platform wallet's invoice (NWC make_invoice) and the pending sprinkle, and starts its
- * SprinkleRoom. `sharesSats` is what each picked project gets; their sum may be less than the
- * amount (fee reserve, the platform's share). Callers check there are enough eligible projects.
+ * SprinkleRoom. `sharesSats` is what each picked project gets; their sum plus the platform's share
+ * may be less than the amount (the fee reserve). Callers check there are enough eligible projects.
  */
 export async function createSprinkle(
   env: Env,
   db: Db,
-  input: { amountSats: number; sharesSats: number[]; excludeFunded: boolean; supporterName?: string | null; comment?: string | null; description: string },
+  input: {
+    amountSats: number
+    sharesSats: number[]
+    /** Forwarded to PLATFORM_ADDRESS once the projects are paid (monthly tipPercent). */
+    platformShareSats?: number
+    excludeFunded: boolean
+    supporterName?: string | null
+    comment?: string | null
+    description: string
+  },
 ): Promise<SprinkleRow> {
   const conn = nwcConnection(env)
   if (!conn) throw sprinkleUnavailable()
@@ -95,6 +104,8 @@ export async function createSprinkle(
         projectCount: shares.length,
         perProjectMsat: Math.floor(shares.reduce((a, b) => a + b, 0) / shares.length / 1000) * 1000,
         sharesMsat: even ? null : shares,
+        shareMsat: (input.platformShareSats ?? 0) * 1000,
+        shareStatus: input.platformShareSats ? 'pending' : null,
         excludeFunded: input.excludeFunded,
         supporterName: input.supporterName || null,
         comment: input.comment || null,

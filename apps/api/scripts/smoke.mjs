@@ -559,7 +559,17 @@ step('closed project rejects invoices')
   // 1000 − 2% fee reserve − 10% for Lonlaam = 880, split at random.
   assert.equal(s.payouts.reduce((a, p) => a + p.amountSats, 0), 880)
   assert.ok(s.payouts.every((p) => p.status === 'paid' && p.amountSats >= 21), JSON.stringify(s.payouts))
-  step(`monthly: plan created → first month paid from the supporter's NWC in ${ms}ms, 880 sats split across ${s.payouts.length} random projects`)
+  // The 10% (100 sats) is forwarded to PLATFORM_ADDRESS (lonlaam@localhost in env.dev) after the projects.
+  let forwarded = []
+  for (let i = 0; i < 40 && !forwarded.some((x) => x.settled); i++) {
+    forwarded = await (await fetch(`${WALLET}/invoices/lonlaam`)).json()
+    if (!forwarded.some((x) => x.settled)) await sleep(250)
+  }
+  const share = forwarded.filter((x) => x.settled)
+  assert.equal(share.length, 1, JSON.stringify(forwarded))
+  assert.equal(share[0].amountMsat, 100_000)
+  assert.match(share[0].comment, new RegExp(s.id))
+  step(`monthly: plan created → first month paid from the supporter's NWC in ${ms}ms, 880 sats split across ${s.payouts.length} random projects, 100 forwarded to Lonlaam`)
 
   // Email: a verification link first; only a verified address is used.
   const mail = await (await fetch(`${WALLET}/email/last`)).json()

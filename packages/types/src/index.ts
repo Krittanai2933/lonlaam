@@ -572,6 +572,9 @@ export const MONTHLY = {
 export const monthlyDistributable = (amountSats: number, tipPercent: number) =>
   Math.floor((amountSats * (100 - SPRINKLE.feeReservePercent - tipPercent)) / 100)
 
+/** Sats of each month forwarded to Lonlaam's Lightning Address. */
+export const monthlyPlatformShare = (amountSats: number, tipPercent: number) => Math.floor((amountSats * tipPercent) / 100)
+
 /** GET /api/monthly/config */
 export interface MonthlyConfigResponse {
   enabled: boolean

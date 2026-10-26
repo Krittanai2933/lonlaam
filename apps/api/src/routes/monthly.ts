@@ -1,5 +1,5 @@
 import type { GetMonthlyResponse, MonthlyConfigResponse, PayMonthlyCycleResponse, PutMonthlyResponse } from '@nampu/types'
-import { LIMITS, MONTHLY, monthlyDistributable, SPRINKLE } from '@nampu/types'
+import { LIMITS, MONTHLY, monthlyDistributable, monthlyPlatformShare, SPRINKLE } from '@nampu/types'
 import { and, desc, eq, gt } from 'drizzle-orm'
 import { Hono } from 'hono'
 import * as v from 'valibot'
@@ -217,6 +217,7 @@ export const monthlyRoutes = new Hono<AppEnv>()
     const s = await createSprinkle(c.env, db, {
       amountSats,
       sharesSats: shares,
+      platformShareSats: monthlyPlatformShare(amountSats, cycle.tipPercent),
       excludeFunded: plan.excludeFunded,
       supporterName: plan.supporterName,
       comment: plan.comment,

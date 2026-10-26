@@ -150,6 +150,18 @@ export const sprinkles = sqliteTable(
     expiresAt: integer('expires_at').notNull(),
     paidAt: integer('paid_at'),
     completedAt: integer('completed_at'),
+    /**
+     * The supporter's share for the platform (monthly tipPercent), forwarded to PLATFORM_ADDRESS
+     * once the projects are paid. Status null = nothing to forward; `paying` = an invoice was
+     * fetched and pay_invoice sent (maybe in flight). No CHECK constraint: adding one to an
+     * existing table makes drizzle rebuild it, and on D1 that DROP cascades to the payouts.
+     */
+    shareMsat: integer('share_msat').notNull().default(0),
+    shareStatus: text('share_status', { enum: ['pending', 'paying', 'paid', 'failed'] }),
+    shareBolt11: text('share_bolt11'),
+    sharePaymentHash: text('share_payment_hash'),
+    shareAttempts: integer('share_attempts').notNull().default(0),
+    shareError: text('share_error'),
   },
   (t) => [
     index('sprinkles_status_idx').on(t.status, t.createdAt),

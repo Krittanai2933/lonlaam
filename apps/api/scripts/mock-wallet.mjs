@@ -2,6 +2,7 @@
 //   alice@localhost:<port>   → normal wallet with LUD-21 verify
 //   legacy@localhost:<port>  → no `verify` URL (should be rejected by the API)
 // Test controls: POST /pay/<paymentHash> settles an invoice; GET /last returns the latest one;
+// GET /invoices/<name> lists the invoices issued for <name>@localhost:<port>;
 // POST /fail-next makes the next invoice request fail (simulates an unreachable node).
 //
 // Also the platform wallet for sprinkles: a tiny Nostr relay on :<port+1> that answers NIP-47
@@ -170,7 +171,7 @@ createServer((req, res) => {
     const amountMsat = Number(url.searchParams.get('amount'))
     const { preimage, paymentHash } = newPreimage()
     const pr = encodeBolt11({ amountMsat, paymentHash, expiry: 600 })
-    invoices.set(paymentHash, { preimage, pr, settled: false })
+    invoices.set(paymentHash, { preimage, pr, settled: false, name: b, amountMsat, comment: url.searchParams.get('comment') })
     last = { paymentHash, pr, comment: url.searchParams.get('comment') }
     return send(res, 200, { pr, routes: [], ...(b !== 'legacy' && { verify: `${base}/verify/${paymentHash}` }) })
   }
@@ -186,6 +187,11 @@ createServer((req, res) => {
     return send(res, 200, { ok: true })
   }
   if (req.method === 'GET' && a === 'last') return send(res, 200, last)
+  if (req.method === 'GET' && a === 'invoices') {
+    // LNURL invoices for one address name: GET /invoices/<name>
+    const list = [...invoices.entries()].filter(([, v]) => v.name === b).map(([paymentHash, v]) => ({ paymentHash, amountMsat: v.amountMsat, comment: v.comment, settled: v.settled }))
+    return send(res, 200, list)
+  }
   if (a === 'nwc' && req.method === 'GET' && b === 'last') return send(res, 200, lastNwc)
   if (a === 'nwc' && req.method === 'GET' && b === 'payments') return send(res, 200, nwcPayments)
   if (a === 'nwc' && req.method === 'POST' && b === 'fail-next') {

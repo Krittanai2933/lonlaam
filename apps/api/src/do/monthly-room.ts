@@ -1,4 +1,4 @@
-import type { MonthlyReason } from '@nampu/types'
+import { type MonthlyReason, monthlyPlatformShare } from '@nampu/types'
 import { DurableObject } from 'cloudflare:workers'
 import { and, eq } from 'drizzle-orm'
 import { type Db, getDb } from '../context'
@@ -124,6 +124,7 @@ export class MonthlyRoom extends DurableObject<Env> {
       const s = await createSprinkle(this.env, db, {
         amountSats,
         sharesSats: shares,
+        platformShareSats: monthlyPlatformShare(amountSats, cycle.tipPercent),
         excludeFunded: plan.excludeFunded,
         supporterName: plan.supporterName,
         comment: plan.comment,

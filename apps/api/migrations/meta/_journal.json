@@ -50,6 +50,13 @@
       "when": 1793016381833,
       "tag": "0006_monthly",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1793020062725,
+      "tag": "0007_sprinkle_share",
+      "breakpoints": true
     }
   ]
 }

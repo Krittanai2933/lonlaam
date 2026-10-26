@@ -93,18 +93,31 @@ export async function fetchPayRequest(address: string, opts: LnurlOptions): Prom
   return { callback: checkUrl(r.callback, 'callback', opts), minSendable, maxSendable, commentAllowed }
 }
 
-export async function requestInvoice(
-  pay: PayRequest,
-  amountMsat: number,
-  comment: string | undefined,
-  opts: LnurlOptions,
-): Promise<CallbackInvoice> {
+async function callback(pay: PayRequest, amountMsat: number, comment: string | undefined) {
   const u = new URL(pay.callback)
   u.searchParams.set('amount', String(amountMsat))
   // LUD-12: only send a comment if the wallet accepts one, trimmed to its limit.
   if (comment && pay.commentAllowed > 0) u.searchParams.set('comment', comment.slice(0, pay.commentAllowed))
   const r = await get(u.toString())
   if (typeof r.pr !== 'string' || r.pr.length === 0) throw lnurlError('callback returned no invoice')
+  return r as typeof r & { pr: string }
+}
+
+/**
+ * An invoice we pay ourselves (forwarding the platform's share): the preimage is our proof,
+ * so LUD-21 isn't required. Returns the BOLT11.
+ */
+export async function requestPlainInvoice(pay: PayRequest, amountMsat: number, comment: string | undefined): Promise<string> {
+  return (await callback(pay, amountMsat, comment)).pr
+}
+
+export async function requestInvoice(
+  pay: PayRequest,
+  amountMsat: number,
+  comment: string | undefined,
+  opts: LnurlOptions,
+): Promise<CallbackInvoice> {
+  const r = await callback(pay, amountMsat, comment)
   if (r.verify === undefined || r.verify === null) {
     throw new ApiError(
       422,
