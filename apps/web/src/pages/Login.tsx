@@ -89,7 +89,8 @@ function useFinishLogin() {
   return useCallback(
     (res: LoginResponse, nostrPubkey?: string) => {
       signIn(res)
-      if (!isOnboarded(res.creator)) navigate('/welcome', { replace: true, state: { from, nostrPubkey } })
+      // Supporter pages (monthly sprinkle) work without a creator profile.
+      if (!isOnboarded(res.creator) && !from.startsWith('/monthly')) navigate('/welcome', { replace: true, state: { from, nostrPubkey } })
       else navigate(from, { replace: true })
     },
     [signIn, navigate, from],

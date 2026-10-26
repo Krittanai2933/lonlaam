@@ -43,6 +43,13 @@
       "when": 1792128703938,
       "tag": "0005_project_translation_manual",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1793016381833,
+      "tag": "0006_monthly",
+      "breakpoints": true
     }
   ]
 }

@@ -71,6 +71,28 @@ Signature checks use `@noble/curves` (~0.7 ms warm, ~2 ms cold per verify). Behi
 Money never passes through the platform. Wallets that don't implement LUD-21 are rejected when the
 creator sets their address (`PATCH /api/me` probes by requesting a throwaway invoice).
 
+## Monthly sprinkle
+
+Any logged-in account (no creator onboarding) can set a monthly amount (`PUT /api/monthly`). Each month
+is one sprinkle with a random project count (`projectsMin`–`projectsMax`) and a random split
+(`sprinkles.shares_msat`); the supporter can also leave a share for the platform (`tipPercent`), which
+simply stays in the platform wallet.
+
+1. Creating the plan charges the first month at once; after that the cron (`*/15 * * * *`, `runMonthly`)
+   starts plans whose `next_charge_at` has passed, on the same day of each month (UTC).
+2. `MonthlyRoom` (one DO per month) makes the sprinkle in one alarm run and pays its invoice in the
+   next, from the supporter's own wallet over their NWC connection (`get_info` is checked when they
+   save it; the string is AES-GCM sealed with `NWC_ENC_KEY`). `SprinkleRoom` then distributes as usual.
+3. Revoked/unsupported connections go straight to `needs_payment`; other failures retry after 10 min,
+   1 h and 6 h first. A `needs_payment` month is paid by hand (`POST /api/monthly/cycles/:id/pay` →
+   a sprinkle invoice) within 14 days, else it becomes `missed`. One email goes out if the supporter
+   verified an address.
+
+Secrets: `NWC_ENC_KEY` (`openssl rand -hex 32`; without it every month is paid by hand, and never
+rotate it once set) and `RESEND_API_KEY` (email, sender `EMAIL_FROM` on a domain verified in Resend).
+Locally both point at fixed dev values; mail lands in the mock wallet (`GET :8790/email/last`), and
+`curl localhost:8787/cdn-cgi/local/scheduled` runs the cron.
+
 ## Free plan budget
 
 | Limit | How it is kept |

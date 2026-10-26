@@ -1,5 +1,6 @@
 /**
- * Nostr Wallet Connect (NIP-47) client for the platform wallet used by sprinkles.
+ * Nostr Wallet Connect (NIP-47) client: the platform wallet used by sprinkles, and supporters'
+ * own wallets paying their monthly sprinkle.
  *
  * One `NwcClient` = one outbound WebSocket to the wallet's relay (1 subrequest). Requests are
  * kind-23194 events encrypted to the wallet; responses are kind-23195 events tagged with the
@@ -65,6 +66,11 @@ export interface LookupInvoiceResult {
   /** settled = paid (incoming) or sent (outgoing); failed = an outgoing payment that definitely failed. */
   state: 'settled' | 'failed' | 'pending'
   preimage: string | null
+}
+
+export interface GetInfoResult {
+  /** NIP-47 methods this connection may call; null when the wallet didn't say. */
+  methods: string[] | null
 }
 
 export interface PayInvoiceResult {
@@ -141,6 +147,11 @@ export class NwcClient {
     const settled = (typeof r.settled_at === 'number' && r.settled_at > 0) || r.state === 'settled'
     const state = settled ? 'settled' : r.state === 'failed' ? 'failed' : 'pending'
     return { state, preimage: typeof r.preimage === 'string' && r.preimage ? r.preimage.toLowerCase() : null }
+  }
+
+  async getInfo(): Promise<GetInfoResult> {
+    const r = await this.request('get_info', {})
+    return { methods: Array.isArray(r.methods) ? r.methods.filter((m): m is string => typeof m === 'string') : null }
   }
 
   async payInvoice(bolt11: string, timeoutMs = 45_000): Promise<PayInvoiceResult> {

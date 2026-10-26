@@ -506,6 +506,139 @@ step('closed project rejects invoices')
   step(`sprinkle: wallet out of balance → backed off, then paid (${broke.ms}ms)`)
 }
 
+// ─── Monthly: a sprinkle every month, paid from the supporter's own wallet (NWC) ───
+{
+  // The mock wallet's connection doubles as the supporter's wallet: it can pay the platform's invoices.
+  const MOCK_NWC = 'nostr+walletconnect://ebdda12636f35f00fe588fbcf77fa6f763ea4a88eaa1fcd6d51fc31d4fd334d5?relay=ws://localhost:8791&secret=a5dc994f93583db22acc96d86081ae48061d293f0aafd12d3692c5ab5aa5b3ad'
+  const cfg = (await call('GET', '/api/monthly/config')).json
+  assert.deepEqual({ enabled: cfg.enabled, autoPay: cfg.autoPay, email: cfg.email }, { enabled: true, autoPay: true, email: true })
+  const eligible = (await call('GET', '/api/sprinkles/config')).json.eligibleProjects
+
+  // Any account can subscribe: no creator onboarding needed.
+  const fan = (await nostrLogin(schnorr.utils.randomSecretKey())).res.json.token
+  assert.equal((await call('GET', '/api/monthly')).status, 401)
+  assert.deepEqual((await call('GET', '/api/monthly', { token: fan })).json, { plan: null, cycles: [] })
+  const put = (token, body) => call('PUT', '/api/monthly', { token, body })
+  const base = { amountSats: 1000, projectsMin: 1, projectsMax: 3 }
+  assert.equal((await put(fan, { ...base, projectsMin: 3, projectsMax: 2 })).status, 422)
+  assert.equal((await put(fan, { ...base, amountSats: 100, projectsMin: 5, projectsMax: 5 })).json.error.code, 'amount_out_of_range')
+  assert.equal((await put(fan, { ...base, nwcUrl: 'nostr+walletconnect://nope' })).json.error.code, 'nwc_invalid')
+  assert.equal((await put(fan, { ...base, email: 'not-an-email' })).status, 422)
+  assert.equal((await call('GET', '/api/monthly', { token: fan })).json.plan, null, 'rejected PUTs create nothing')
+
+  const waitCycle = async (token, until) => {
+    const t0 = Date.now()
+    for (;;) {
+      const m = (await call('GET', '/api/monthly', { token })).json
+      if (m.cycles[0] && until(m.cycles[0])) return { m, ms: Date.now() - t0 }
+      if (Date.now() - t0 > 45_000) throw new Error(`monthly cycle stuck: ${JSON.stringify(m.cycles)}`)
+      await sleep(300)
+    }
+  }
+  const sprinkleDone = async (id) => {
+    for (let i = 0; i < 150; i++) {
+      const s = (await call('GET', `/api/sprinkles/${id}`)).json
+      if (s.status === 'done') return s
+      await sleep(300)
+    }
+    throw new Error(`sprinkle ${id} not done`)
+  }
+
+  // Happy path: the first month is charged right away from the connected wallet.
+  const created = await put(fan, { ...base, projectsMin: 2, tipPercent: 10, excludeFunded: false, supporterName: 'Monthly fan', comment: 'every month!', nwcUrl: MOCK_NWC, email: 'Fan@Example.com' })
+  assert.equal(created.status, 200, JSON.stringify(created.json))
+  assert.equal(created.json.plan.wallet, 'localhost:8791')
+  assert.equal(created.json.plan.email, 'fan@example.com')
+  assert.equal(created.json.plan.emailVerified, false)
+  assert.ok(created.json.plan.nextChargeAt > Date.now() + 27 * 86_400_000, 'next charge about a month away')
+  assert.equal(created.json.cycles.length, 1)
+  const { m: paidM, ms } = await waitCycle(fan, (c) => c.status === 'paid')
+  const s = await sprinkleDone(paidM.cycles[0].sprinkleId)
+  assert.equal(s.amountSats, 1000)
+  assert.ok(s.payouts.length >= 2 && s.payouts.length <= Math.min(3, eligible), `${s.payouts.length} projects`)
+  // 1000 − 2% fee reserve − 10% for Lonlaam = 880, split at random.
+  assert.equal(s.payouts.reduce((a, p) => a + p.amountSats, 0), 880)
+  assert.ok(s.payouts.every((p) => p.status === 'paid' && p.amountSats >= 21), JSON.stringify(s.payouts))
+  step(`monthly: plan created → first month paid from the supporter's NWC in ${ms}ms, 880 sats split across ${s.payouts.length} random projects`)
+
+  // Email: a verification link first; only a verified address is used.
+  const mail = await (await fetch(`${WALLET}/email/last`)).json()
+  assert.deepEqual(mail.to, ['fan@example.com'])
+  assert.equal(mail.authorization, 'Bearer mock')
+  const link = /https?:\/\/\S+\/api\/monthly\/email\/verify\?token=[0-9a-f]{64}/.exec(mail.text)?.[0]
+  assert.ok(link, mail.text)
+  const bad = await fetch(link.replace(/token=\w+/, `token=${'0'.repeat(64)}`), { redirect: 'manual' })
+  assert.equal(bad.headers.get('location'), '/monthly?email=invalid')
+  const good = await fetch(link, { redirect: 'manual' })
+  assert.equal(good.status, 302)
+  assert.equal(good.headers.get('location'), '/monthly?email=verified')
+  assert.equal((await fetch(link, { redirect: 'manual' })).headers.get('location'), '/monthly?email=invalid', 'single use')
+  const after = (await call('GET', '/api/monthly', { token: fan })).json.plan
+  assert.equal(after.emailVerified, true)
+  // Same address again keeps it verified; disconnecting the wallet keeps the plan.
+  const edit = await put(fan, { ...base, amountSats: 2100, email: 'fan@example.com', nwcUrl: null })
+  assert.equal(edit.json.plan.emailVerified, true)
+  assert.equal(edit.json.plan.wallet, null)
+  assert.equal(edit.json.plan.amountSats, 2100)
+  assert.equal(edit.json.cycles.length, 1, 'editing does not charge again')
+  step('monthly: email verification link (single use), edits keep the verified address')
+
+  // Fallback: the wallet refuses (revoked) → the month waits for a manual payment, with one email.
+  const fan2 = (await nostrLogin(schnorr.utils.randomSecretKey())).res.json.token
+  const paused = await put(fan2, { ...base, status: 'paused', nwcUrl: MOCK_NWC, email: 'fan2@example.com' })
+  assert.equal(paused.json.cycles.length, 0, 'created paused: nothing charged')
+  const link2 = /https?:\/\/\S+token=[0-9a-f]{64}/.exec((await (await fetch(`${WALLET}/email/last`)).json()).text)[0]
+  await fetch(link2, { redirect: 'manual' })
+  await fetch(`${WALLET}/nwc/fail-next?code=UNAUTHORIZED`, { method: 'POST' })
+  const resumed = await put(fan2, { ...base, status: 'active' })
+  assert.equal(resumed.json.cycles.length, 1, 'resuming charges the due month now')
+  const { m: needs } = await waitCycle(fan2, (c) => c.status !== 'charging')
+  const cycle = needs.cycles[0]
+  assert.equal(cycle.status, 'needs_payment', JSON.stringify(cycle))
+  assert.equal(cycle.reason, 'wallet_revoked')
+  let notice
+  for (let i = 0; i < 20 && !notice; i++) {
+    const last = await (await fetch(`${WALLET}/email/last`)).json()
+    if (last.to[0] === 'fan2@example.com' && !/verify/.test(last.text)) notice = last
+    else await sleep(250)
+  }
+  assert.ok(notice, 'expected a needs-payment email')
+  assert.match(notice.text, /\/monthly/)
+
+  // Paying by hand: a fresh invoice for the month (the auto one expired unpaid or is reused).
+  const pay = await call('POST', `/api/monthly/cycles/${cycle.id}/pay`, { token: fan2 })
+  assert.ok(pay.status === 201 || pay.status === 200, JSON.stringify(pay.json))
+  assert.equal(pay.json.status, 'pending')
+  assert.equal(pay.json.amountSats, 1000)
+  const again = await call('POST', `/api/monthly/cycles/${cycle.id}/pay`, { token: fan2 })
+  assert.equal(again.json.id, pay.json.id, 'same invoice while it is still valid')
+  assert.equal((await call('POST', `/api/monthly/cycles/${cycle.id}/pay`, { token: fan })).status, 404, "not someone else's month")
+  const hash = (await (await fetch(`${WALLET}/nwc/last`)).json()).paymentHash
+  await fetch(`${WALLET}/pay/${hash}`, { method: 'POST' })
+  await waitCycle(fan2, (c) => c.status === 'paid')
+  await sprinkleDone(pay.json.id)
+  step('monthly: revoked wallet → needs_payment + email → paid by hand → distributed')
+
+  // No wallet at all: every month is paid by hand.
+  const fan3 = (await nostrLogin(schnorr.utils.randomSecretKey())).res.json.token
+  await put(fan3, base)
+  const { m: manual } = await waitCycle(fan3, (c) => c.status !== 'charging')
+  assert.equal(manual.cycles[0].status, 'needs_payment')
+  assert.equal(manual.cycles[0].reason, 'no_wallet')
+
+  // The cron runs cleanly (nothing due yet), and cancelling forgets the plan.
+  // Cron: make the first fan's plan (2,100 sats, wallet disconnected above) due, then run it.
+  execSync(`npx wrangler d1 execute nampu --local --env dev --command "UPDATE monthly_plans SET next_charge_at = ${Date.now() - 1000} WHERE amount_msat = 2100000"`, { stdio: 'ignore' })
+  assert.equal((await fetch(`${API}/cdn-cgi/local/scheduled?cron=*/15+*+*+*+*`)).status, 200)
+  const { m: cronM } = await waitCycle(fan, (c) => c.amountSats === 2100 && c.status !== 'charging')
+  assert.equal(cronM.cycles.length, 2, 'cron started one new month')
+  assert.equal(cronM.cycles[0].reason, 'no_wallet')
+  assert.ok(cronM.plan.nextChargeAt > Date.now(), 'next charge moved to the future')
+  assert.equal((await call('DELETE', '/api/monthly', { token: fan3 })).status, 204)
+  assert.deepEqual((await call('GET', '/api/monthly', { token: fan3 })).json, { plan: null, cycles: [] })
+  step('monthly: no wallet → paid by hand; cron starts a due month; cancel removes the plan')
+}
+
 // Rate limiting: RL_WRITE keeps its production limit (30/min per creator) in --env dev.
 {
   const { res } = await nostrLogin(schnorr.utils.randomSecretKey())

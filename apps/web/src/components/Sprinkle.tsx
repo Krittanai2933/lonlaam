@@ -40,21 +40,40 @@ export function SprinkleSection({ desktop }: { desktop: boolean }) {
   }
   const body = <SprinkleBody flow={flow} desktop={desktop} onClose={close} />
 
+  const card = (icon: 'gift' | 'refresh', title: string, text: string, action: ReactNode) => (
+    <div className={cx('flex items-center gap-3.5 rounded-md border border-accent-300 bg-[color-mix(in_srgb,var(--color-accent-100)_55%,transparent)]', desktop ? 'px-5 py-4' : 'flex-wrap px-4 py-3.5')}>
+      <div className="grid size-11 flex-none place-items-center rounded-full border border-accent-300 text-accent-700">
+        <Icon name={icon} size={22} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="font-heading text-lg leading-[1.3] font-semibold">{title}</div>
+        <div className="text-sm text-neutral-700">{text}</div>
+      </div>
+      {action}
+    </div>
+  )
+
+  // Two side by side (stacked on mobile): one payment now, or the same every month (/monthly).
   return (
-    <section id="sprinkle" className={cx(desktop ? 'px-10 pb-10' : 'mt-7')}>
-      <div className={cx('flex items-center gap-3.5 rounded-md border border-accent-300 bg-[color-mix(in_srgb,var(--color-accent-100)_55%,transparent)]', desktop ? 'px-5 py-4' : 'flex-wrap px-4 py-3.5')}>
-        <div className="grid size-11 flex-none place-items-center rounded-full border border-accent-300 text-accent-700">
-          <Icon name="gift" size={22} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="font-heading text-lg leading-[1.3] font-semibold">{t.sprTitle}</div>
-          <div className="text-sm text-neutral-700">{t.sprBody}</div>
-        </div>
-        <Button variant="cta" icon={s?.status === 'distributing' ? undefined : 'gift'} className={cx('h-11 px-5', !desktop && 'w-full')} onClick={() => setOpen(true)}>
+    <section id="sprinkle" className={cx('grid gap-3', desktop ? 'grid-cols-2 px-10 pb-10' : 'mt-7')}>
+      {card(
+        'gift',
+        t.sprTitle,
+        t.sprBody,
+        <Button variant="cta" icon={s?.status === 'distributing' ? undefined : 'gift'} className={cx('h-11 flex-none px-5', !desktop && 'w-full')} onClick={() => setOpen(true)}>
           {s?.status === 'distributing' && <Spinner size={14} />}
           {cta}
-        </Button>
-      </div>
+        </Button>,
+      )}
+      {card(
+        'refresh',
+        t.moTitle,
+        t.moCardBody,
+        <Link to="/monthly" className={cx('btn btn-cta h-11 flex-none px-5', !desktop && 'w-full')}>
+          <Icon name="refresh" />
+          {t.moCardGo}
+        </Link>,
+      )}
       {open &&
         (desktop ? (
           <Dialog open bare onClose={close} className="w-[460px] max-w-full">
@@ -153,7 +172,7 @@ type Flow = ReturnType<typeof useSprinkle>
 
 // ─── Containers ───────────────────────────────────────────────────────────────
 
-function Sheet({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+export function Sheet({ onClose, children }: { onClose: () => void; children: ReactNode }) {
   useEffect(() => {
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -305,7 +324,7 @@ function Pay({ flow, s, desktop }: { flow: Flow; s: Sprinkle; desktop: boolean }
  * Face-down cards, one per project, flipped one at a time as payouts land: the first after a
  * short pause, then every REVEAL_MS. Failed payouts are replaced server-side and never shown.
  */
-function Reveal({ s, onAgain, onClose }: { s: Sprinkle; onAgain: () => void; onClose: () => void }) {
+export function Reveal({ s, onAgain, onClose }: { s: Sprinkle; onAgain?: () => void; onClose: () => void }) {
   const { t } = useI18n()
   const paid = s.payouts.filter((p) => p.status === 'paid')
   const [shown, setShown] = useState(() => (reducedMotion() ? paid.length : 0))
@@ -365,9 +384,11 @@ function Reveal({ s, onAgain, onClose }: { s: Sprinkle; onAgain: () => void; onC
       {finished && paid.length < s.projectCount && <Notice>{t.sprShort}</Notice>}
       {finished && (
         <div className="flex gap-2">
-          <Button variant="secondary" icon="gift" className="h-11 flex-1" onClick={onAgain}>
-            {t.sprAgain}
-          </Button>
+          {onAgain && (
+            <Button variant="secondary" icon="gift" className="h-11 flex-1" onClick={onAgain}>
+              {t.sprAgain}
+            </Button>
+          )}
           <Button variant="primary" className="h-11 flex-1" onClick={onClose}>
             {t.close}
           </Button>

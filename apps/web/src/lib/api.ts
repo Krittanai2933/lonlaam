@@ -9,6 +9,7 @@ import type {
   ErrorCode,
   GetInvoiceResponse,
   GetMeResponse,
+  GetMonthlyResponse,
   GetProjectResponse,
   GetPublicProjectResponse,
   GetSprinkleResponse,
@@ -21,9 +22,13 @@ import type {
   LnurlAuthPollResponse,
   LnurlAuthStartResponse,
   LoginResponse,
+  MonthlyConfigResponse,
   NostrChallengeResponse,
   NostrEvent,
+  PayMonthlyCycleResponse,
   ProjectStatsResponse,
+  PutMonthlyRequest,
+  PutMonthlyResponse,
   SprinkleConfigResponse,
   StatsRange,
   TranslateProjectResponse,
@@ -122,6 +127,13 @@ export const api = {
   sprinkleConfig: () => request<SprinkleConfigResponse>('GET', '/api/sprinkles/config'),
   createSprinkle: (body: CreateSprinkleRequest) => request<CreateSprinkleResponse>('POST', '/api/sprinkles', { body }),
   sprinkle: (id: string) => request<GetSprinkleResponse>('GET', `/api/sprinkles/${id}`),
+
+  // monthly (any logged-in account)
+  monthlyConfig: () => request<MonthlyConfigResponse>('GET', '/api/monthly/config'),
+  monthly: () => request<GetMonthlyResponse>('GET', '/api/monthly'),
+  putMonthly: (body: PutMonthlyRequest) => request<PutMonthlyResponse>('PUT', '/api/monthly', { body }),
+  deleteMonthly: () => request<void>('DELETE', '/api/monthly'),
+  payMonthlyCycle: (id: string) => request<PayMonthlyCycleResponse>('POST', `/api/monthly/cycles/${id}/pay`),
 
   // creator
   me: () => request<GetMeResponse>('GET', '/api/me'),

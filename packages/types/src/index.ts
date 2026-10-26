@@ -72,6 +72,14 @@ export type ErrorCode =
   | 'not_enough_projects'
   /** Automatic translation is switched off (no API key) or failed. */
   | 'translation_unavailable'
+  /** Monthly sprinkles are switched off (no platform wallet or no encryption key). */
+  | 'monthly_unavailable'
+  /** The supporter's NWC connection string is malformed, refused by their wallet, or can't pay. */
+  | 'nwc_invalid'
+  /** The supporter's wallet relay could not be reached to check the connection. */
+  | 'nwc_unreachable'
+  /** Email notices are switched off (no RESEND_API_KEY). */
+  | 'email_unavailable'
   | 'internal'
 
 export interface ApiErrorBody {
@@ -525,6 +533,7 @@ export interface Sprinkle {
   id: string
   amountSats: number
   projectCount: number
+  /** Even split; with a random split (monthly) the average, rounded down. Each payout has its own amountSats. */
   perProjectSats: number
   excludeFunded: boolean
   bolt11: string
@@ -538,6 +547,123 @@ export interface Sprinkle {
 export type CreateSprinkleResponse = Sprinkle
 /** GET /api/sprinkles/:id */
 export type GetSprinkleResponse = Sprinkle
+
+// ─── Monthly (a sprinkle every month, paid from the supporter's own wallet) ─────
+//
+// The supporter logs in (any account, no creator onboarding needed) and sets a monthly amount.
+// Each month the server draws a random number of projects and a random split, makes a sprinkle
+// for it, and pays that sprinkle's invoice from the supporter's wallet over their own NWC
+// connection. When that can't happen (no connection, revoked, over budget, empty wallet,
+// unreachable after a few tries) the month waits for them to pay by hand (`needs_payment`)
+// and, if they verified an email address, they get one notice.
+
+export const MONTHLY = {
+  amountSats: { min: 100, max: SPRINKLE.amountSats.max },
+  /** Optional share kept by Lonlaam, on top of the network fee reserve. */
+  tipPercent: { max: 20 },
+  email: { max: 254 },
+  /** Months listed in GET /api/monthly. */
+  history: 12,
+  /** An unpaid month is given up after this many days. */
+  payWithinDays: 14,
+} as const
+
+/** Sats split across projects each month: the amount minus the fee reserve and Lonlaam's share. */
+export const monthlyDistributable = (amountSats: number, tipPercent: number) =>
+  Math.floor((amountSats * (100 - SPRINKLE.feeReservePercent - tipPercent)) / 100)
+
+/** GET /api/monthly/config */
+export interface MonthlyConfigResponse {
+  enabled: boolean
+  /** Supporters can connect a wallet (NWC) for automatic payment; otherwise every month is paid by hand. */
+  autoPay: boolean
+  /** Email notices can be sent. */
+  email: boolean
+  eligibleProjects: number
+}
+
+export type MonthlyPlanStatus = 'active' | 'paused'
+
+export interface MonthlyPlan {
+  amountSats: number
+  /** Each month picks a random number of projects in this range (capped by what's open). */
+  projectsMin: number
+  projectsMax: number
+  excludeFunded: boolean
+  tipPercent: number
+  supporterName: string | null
+  comment: string | null
+  /** The connected wallet (Lightning Address from the connection string, or its relay host); null = pay by hand. */
+  wallet: string | null
+  status: MonthlyPlanStatus
+  /** Day of the month (UTC) it is charged; shorter months use their last day. */
+  billingDay: number
+  nextChargeAt: number
+  email: string | null
+  emailVerified: boolean
+  createdAt: number
+}
+
+/**
+ * charging: being paid from the supporter's wallet · needs_payment: waiting for them to pay by hand
+ * · paid: the month's sprinkle was paid · missed: given up (unpaid after MONTHLY.payWithinDays, paused, no projects)
+ */
+export type MonthlyCycleStatus = 'charging' | 'needs_payment' | 'paid' | 'missed'
+
+/** Why a month needs paying by hand or was missed. */
+export type MonthlyReason =
+  | 'no_wallet'
+  | 'wallet_revoked'
+  | 'wallet_unsupported'
+  | 'insufficient_balance'
+  | 'quota_exceeded'
+  | 'payment_failed'
+  | 'wallet_unreachable'
+  | 'no_projects'
+  | 'paused'
+  | 'unpaid'
+
+export interface MonthlyCycle {
+  id: string
+  dueAt: number
+  amountSats: number
+  status: MonthlyCycleStatus
+  reason: MonthlyReason | null
+  /** The month's current sprinkle (GET /api/sprinkles/:id shows where it went). */
+  sprinkleId: string | null
+  paidAt: number | null
+}
+
+/** GET /api/monthly */
+export interface GetMonthlyResponse {
+  plan: MonthlyPlan | null
+  /** Newest first, up to MONTHLY.history. */
+  cycles: MonthlyCycle[]
+}
+
+/**
+ * PUT /api/monthly — create or change the plan. Creating it charges the first month right away.
+ * - nwcUrl: omitted keeps the current wallet, null disconnects it. It is checked with the wallet
+ *   (get_info must allow pay_invoice) and stored encrypted.
+ * - email: omitted keeps it, null removes it; a new address gets a verification link and is
+ *   only used once verified.
+ */
+export interface PutMonthlyRequest {
+  amountSats: number
+  projectsMin: number
+  projectsMax: number
+  excludeFunded?: boolean
+  tipPercent?: number
+  supporterName?: string | null
+  comment?: string | null
+  nwcUrl?: string | null
+  email?: string | null
+  status?: MonthlyPlanStatus
+}
+export type PutMonthlyResponse = GetMonthlyResponse
+
+/** POST /api/monthly/cycles/:id/pay — the invoice to pay a needs_payment month by hand. */
+export type PayMonthlyCycleResponse = Sprinkle
 
 // ─── Real-time (WebSocket) ────────────────────────────────────────────────────
 //

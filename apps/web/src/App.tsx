@@ -11,6 +11,7 @@ import WelcomePage from './pages/Welcome'
 
 const EditorPage = lazy(() => import('./pages/editor/Editor'))
 const ProjectPage = lazy(() => import('./pages/Project'))
+const MonthlyPage = lazy(() => import('./pages/Monthly'))
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: (n, e) => n < 2 && !(e as { status?: number }).status, refetchOnWindowFocus: false } },
@@ -23,6 +24,8 @@ const router = createBrowserRouter([
   { path: '/p/:slug', element: <Suspense fallback={<FullPageSpinner />}><ProjectPage /></Suspense> },
   { path: '/login', element: <LoginPage /> },
   { path: '/welcome', element: guard(<WelcomePage />, true) },
+  // Supporters don't need a creator profile.
+  { path: '/monthly', element: guard(<Suspense fallback={<FullPageSpinner />}><MonthlyPage /></Suspense>, true) },
   { path: '/dashboard', element: guard(<DashboardIndex />) },
   { path: '/dashboard/:id', element: guard(<DashboardPage />) },
   { path: '/projects/new', element: guard(<Suspense fallback={<FullPageSpinner />}><EditorPage /></Suspense>) },

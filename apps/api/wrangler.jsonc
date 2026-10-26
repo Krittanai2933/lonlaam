@@ -50,15 +50,21 @@
     "bindings": [
       { "name": "PROJECT_ROOM", "class_name": "ProjectRoom" },
       { "name": "SPRINKLE_ROOM", "class_name": "SprinkleRoom" },
-      { "name": "PROJECT_TRANSLATOR", "class_name": "ProjectTranslator" }
+      { "name": "PROJECT_TRANSLATOR", "class_name": "ProjectTranslator" },
+      { "name": "MONTHLY_ROOM", "class_name": "MonthlyRoom" }
     ]
   },
   "migrations": [
     // SQLite-backed Durable Objects are the only kind available on the Free plan.
     { "tag": "v1", "new_sqlite_classes": ["ProjectRoom"] },
     { "tag": "v2", "new_sqlite_classes": ["SprinkleRoom"] },
-    { "tag": "v3", "new_sqlite_classes": ["ProjectTranslator"] }
+    { "tag": "v3", "new_sqlite_classes": ["ProjectTranslator"] },
+    { "tag": "v4", "new_sqlite_classes": ["MonthlyRoom"] }
   ],
+
+  // Starts monthly sprinkles that are due (src/lib/monthly.ts runMonthly). One of the 5 cron
+  // triggers the Free plan allows.
+  "triggers": { "crons": ["*/15 * * * *"] },
 
   "ratelimits": [
     // Workers Rate Limiting (Free plan). Keys are per client IP or per creator; period 10 or 60s.
@@ -78,7 +84,13 @@
     "MEDIA_ORIGIN": "https://media.lonlaam.com",
     "SITE_NAME": "ล้นหลาม",
     // "true" only for local dev: allows http:// LNURL endpoints and host:port Lightning Addresses.
-    "ALLOW_INSECURE_LNURL": "false"
+    "ALLOW_INSECURE_LNURL": "false",
+    // Sender for monthly-sprinkle emails (Resend; the domain must be verified there). Email is
+    // off until the secret RESEND_API_KEY is set.
+    "EMAIL_FROM": "ล้นหลาม <noreply@lonlaam.com>"
+    // Secret NWC_ENC_KEY (64 hex chars, e.g. `openssl rand -hex 32`) encrypts supporters' NWC
+    // connection strings and turns on automatic monthly payment. Never change it once set:
+    // stored connections would stop opening and those supporters fall back to paying by hand.
     // Secret ANTHROPIC_API_KEY (wrangler secret put ANTHROPIC_API_KEY) turns on English
     // machine translation of project text (src/do/project-translator.ts). Unset = off.
   },
@@ -93,6 +105,11 @@
         "MEDIA_ORIGIN": "",
         "SITE_NAME": "ล้นหลาม (dev)",
         "ALLOW_INSECURE_LNURL": "true",
+        "EMAIL_FROM": "ล้นหลาม (dev) <dev@localhost>",
+        // Fixed dev-only key. Email goes to the mock wallet (GET :8790/email/last) instead of Resend.
+        "NWC_ENC_KEY": "6e616d70752d6465762d6f6e6c792d6e77632d656e632d6b65792d3030303030",
+        "RESEND_API_KEY": "mock",
+        "RESEND_API_URL": "http://localhost:8790/email",
         // Sprinkle wallet = the mock NWC relay in scripts/mock-wallet.mjs (fixed test keys).
         // Production sets it as a secret: wrangler secret put NWC_URL
         "NWC_URL": "nostr+walletconnect://ebdda12636f35f00fe588fbcf77fa6f763ea4a88eaa1fcd6d51fc31d4fd334d5?relay=ws://localhost:8791&secret=a5dc994f93583db22acc96d86081ae48061d293f0aafd12d3692c5ab5aa5b3ad"
@@ -113,7 +130,8 @@
         "bindings": [
           { "name": "PROJECT_ROOM", "class_name": "ProjectRoom" },
           { "name": "SPRINKLE_ROOM", "class_name": "SprinkleRoom" },
-          { "name": "PROJECT_TRANSLATOR", "class_name": "ProjectTranslator" }
+          { "name": "PROJECT_TRANSLATOR", "class_name": "ProjectTranslator" },
+          { "name": "MONTHLY_ROOM", "class_name": "MonthlyRoom" }
         ]
       },
       // Local limits: generous where smoke/e2e/seed scripts create lots of data from one IP;
