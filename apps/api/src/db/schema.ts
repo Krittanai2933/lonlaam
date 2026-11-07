@@ -88,6 +88,11 @@ export const projects = sqliteTable(
     enSourceHash: text('en_source_hash'),
     /** The creator wrote the *_en columns in the editor; ProjectTranslator leaves them alone. */
     enManual: integer('en_manual', { mode: 'boolean' }).notNull().default(false),
+    /**
+     * Set by the operator: the project still takes direct payments but is never picked by random
+     * or monthly sprinkles (supporters didn't choose it). No UI yet; set it with SQL.
+     */
+    sprinkleExcluded: integer('sprinkle_excluded', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at').notNull().default(now),
     updatedAt: integer('updated_at').notNull().default(now),
   },

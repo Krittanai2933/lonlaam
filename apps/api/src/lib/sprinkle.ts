@@ -24,10 +24,11 @@ export function nwcConnection(env: Env): NwcConnection | null {
   }
 }
 
-/** Active, not about to end, and the creator can receive (has a Lightning Address). */
+/** Active, not about to end, not excluded by the operator, and the creator can receive (has a Lightning Address). */
 const eligible = (now: number) =>
   and(
     eq(projects.status, 'active'),
+    eq(projects.sprinkleExcluded, false),
     or(isNull(projects.endsAt), gt(projects.endsAt, now + ENDING_MARGIN_MS)),
     isNotNull(creators.lightningAddress),
   )

@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `sprinkle_excluded` integer DEFAULT false NOT NULL;
