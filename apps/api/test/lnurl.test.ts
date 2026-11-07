@@ -81,8 +81,13 @@ describe('LNURL-pay', () => {
 
 describe('verifyPayment (LUD-21)', () => {
   it('reads settled + preimage', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ status: 'OK', settled: true, preimage: 'AB', pr: 'x' }))
-    await expect(verifyPayment('https://example.com/v/1')).resolves.toEqual({ settled: true, preimage: 'ab' })
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ status: 'OK', settled: true, preimage: 'AB'.repeat(32), pr: 'x' }))
+    await expect(verifyPayment('https://example.com/v/1')).resolves.toEqual({ settled: true, preimage: 'ab'.repeat(32) })
+  })
+  it('drops a preimage that is not 32-byte hex (coinOS internal payments send a UUID)', async () => {
+    const preimage = '7fd2dde2-f8dc-4022-a42c-0c6d68a6e67a'
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ status: 'OK', settled: true, preimage, pr: 'x' }))
+    await expect(verifyPayment('https://example.com/v/1')).resolves.toEqual({ settled: true, preimage: null })
   })
   it('treats unsettled as not paid', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ status: 'OK', settled: false, preimage: null, pr: 'x' }))

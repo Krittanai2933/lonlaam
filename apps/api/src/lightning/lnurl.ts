@@ -133,7 +133,10 @@ export async function verifyPayment(verifyUrl: string): Promise<VerifyResult> {
   const r = await get(verifyUrl)
   if (r.status !== 'OK') throw new Error('verify: unexpected status')
   const settled = r.settled === true
-  const preimage = typeof r.preimage === 'string' && r.preimage.length > 0 ? r.preimage.toLowerCase() : null
+  // Only a 32-byte hex preimage can prove anything. coinOS settles coinOS-to-coinOS payments
+  // internally and returns a UUID here instead; treat that like no preimage (trust `settled`),
+  // or the payment would never count.
+  const preimage = typeof r.preimage === 'string' && /^[0-9a-f]{64}$/i.test(r.preimage) ? r.preimage.toLowerCase() : null
   return { settled, preimage }
 }
 
