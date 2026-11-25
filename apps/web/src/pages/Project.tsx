@@ -2,7 +2,7 @@ import type { GetProjectResponse, GetPublicProjectResponse, ListSupportersRespon
 import { PUBLIC_PAGE } from '@nampu/types'
 import { Avatar, Brand, Button, cx, Icon, Plate, Progress, Tag, Tabs } from '@nampu/ui'
 import { type InfiniteData, type QueryClient, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useId, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { ContributeFlow } from '../components/contribute/Contribute'
 import { Markdown } from '../components/Markdown'
@@ -213,27 +213,63 @@ function RewardList({ p, onPick, className }: { p: PublicProject; onPick: (rewar
       <div className="flex flex-col gap-2">
         {p.rewards.map((r) => {
           const left = r.limit === null ? null : Math.max(0, r.limit - r.claimed)
+          const pickable = open && left !== 0
+          const counts = [f(r.backers === 1 ? t.rewardBackersOne : t.rewardBackers, { n: fmt(r.backers) }), left === null ? null : left === 0 ? t.soldOut : f(t.rewardLeft, { n: fmt(left) })]
+          // The card is one big target; the title button stretches over it so "More" can sit inside.
           return (
-            <button
-              key={r.id}
-              type="button"
-              disabled={!open || left === 0}
-              onClick={() => onPick(r.id)}
-              className="flex cursor-pointer flex-col gap-1 rounded-md border border-divider p-3.5 text-left hover:border-accent disabled:cursor-default disabled:hover:border-divider"
-            >
+            <article key={r.id} aria-label={r.title} className={cx('relative flex flex-col gap-1 rounded-md border border-divider p-3.5', pickable && 'hover:border-accent')}>
               <span className="tnum text-[13px] text-accent-700">{f(t.rewardFrom, { sats: fmt(r.minSats) })}</span>
-              <span className="text-[15px] font-medium">{r.title}</span>
-              {r.description && <span className="text-sm whitespace-pre-line text-neutral-700">{r.description}</span>}
-              <span className="tnum text-xs text-neutral-600">
-                {[f(t.rewardBackers, { n: fmt(r.backers) }), left === null ? null : left === 0 ? t.soldOut : f(t.rewardLeft, { n: fmt(left) })]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </span>
-            </button>
+              <button
+                type="button"
+                disabled={!pickable}
+                onClick={() => onPick(r.id)}
+                className="cursor-pointer text-left text-[15px] font-medium after:absolute after:inset-0 after:rounded-md after:content-[''] disabled:cursor-default"
+              >
+                {r.title}
+              </button>
+              {r.description && <ClampedText text={r.description} />}
+              <span className="tnum text-xs text-neutral-600">{counts.filter(Boolean).join(' · ')}</span>
+            </article>
           )
         })}
       </div>
     </div>
+  )
+}
+
+/** Up to three lines, with a toggle when the text is longer. */
+function ClampedText({ text }: { text: string }) {
+  const { t } = useI18n()
+  const ref = useRef<HTMLSpanElement>(null)
+  const id = useId()
+  const [expanded, setExpanded] = useState(false)
+  const [overflows, setOverflows] = useState(false)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el || expanded) return
+    const measure = () => setOverflows(el.scrollHeight > el.clientHeight + 1)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [text, expanded])
+  return (
+    <>
+      <span id={id} ref={ref} className={cx('text-sm whitespace-pre-line text-neutral-700', !expanded && 'line-clamp-3')}>
+        {text}
+      </span>
+      {(overflows || expanded) && (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-controls={id}
+          className="relative z-[1] cursor-pointer self-start text-[13px] text-accent-700 underline underline-offset-2"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? t.readLess : t.readMore}
+        </button>
+      )}
+    </>
   )
 }
 
@@ -295,13 +331,9 @@ function Leaderboard({ slug, compact }: { slug: string; compact?: boolean }) {
   )
 }
 
-/** The reward a supporter chose: its English text while the translation is shown, else the name it had when they paid. */
-function useRewardTitle(p: PublicProject, s: Supporter): string | null {
-  const tr = useContext(TranslationCtx)
-  if (!s.reward) return null
-  const en = tr && !tr.original ? p.translation?.rewards.find((r) => r.id === s.reward!.id)?.title : undefined
-  return en ?? s.reward.title
-}
+/** The reward a supporter chose, as the page shows it now (p is already localized); its name when they paid once it is gone. */
+const rewardTitle = (p: PublicProject, s: Supporter): string | null =>
+  s.reward && (p.rewards.find((r) => r.id === s.reward!.id)?.title ?? s.reward.title)
 
 function RewardTag({ title }: { title: string }) {
   return (
@@ -314,7 +346,7 @@ function RewardTag({ title }: { title: string }) {
 function ActivityRow({ p, s, compact, now }: { p: PublicProject; s: Supporter; compact?: boolean; now: number }) {
   const { t, f } = useI18n()
   const { name: who, picture } = useSupporterIdentity(s)
-  const reward = useRewardTitle(p, s)
+  const reward = rewardTitle(p, s)
   return (
     <div className="flex gap-2.5 border-b border-divider py-2 text-sm">
       {picture ? (
