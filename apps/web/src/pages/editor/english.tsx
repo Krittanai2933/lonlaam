@@ -104,6 +104,10 @@ export function EnglishVersion({ form, set, project, ensureProject, flush }: Ste
                 const setTr = (patch: Partial<typeof tr>) => setEn({ rewards: { ...en.rewards, [r.id]: { ...tr, ...patch } } })
                 return (
                   <div key={r.id} className="flex flex-col gap-1.5 border-b border-divider py-2">
+                    <div className="flex items-baseline justify-between gap-3 text-[13px] text-neutral-700">
+                      <span className="min-w-0 truncate">{r.title}</span>
+                      <span className="tnum flex-none">{fmt(r.minSats)} sats</span>
+                    </div>
                     <Input
                       lang="en"
                       aria-label={`${t.rewardName} ${r.title} (English)`}

@@ -90,6 +90,20 @@ export const cleanMilestones = (ms: Milestone[]) =>
     .sort((a, b) => a.sats - b.sats)
     .filter((m, i, arr) => i === 0 || m.sats !== arr[i - 1]!.sats)
 
+/**
+ * What a started reward still needs before it is saved: a title and a minimum amount. A row the
+ * creator hasn't typed into yet needs nothing.
+ */
+export function rewardGaps(r: Reward): ('title' | 'minSats')[] {
+  const gaps: ('title' | 'minSats')[] = []
+  if (!r.title.trim()) gaps.push('title')
+  if (!(r.minSats > 0)) gaps.push('minSats')
+  const untouched = gaps.length === 2 && !r.description.trim() && r.limit === null
+  return untouched ? [] : gaps
+}
+
+export const hasIncompleteReward = (rs: Reward[]) => rs.some((r) => rewardGaps(r).length > 0)
+
 /** Rewards being edited may be incomplete; only send the ones with a title and an amount, sorted like the server stores them. */
 export const cleanRewards = (rs: Reward[]): Reward[] =>
   rs
