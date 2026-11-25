@@ -12,6 +12,7 @@ import { nip98Pubkey } from '../lib/signatures'
 import { json, nostrEventSchema } from '../lib/validate'
 import { createProjectInvoice, roomFor } from '../lib/project-invoice'
 import { pageLimit, supporterPage } from '../lib/supporters'
+import { chooseReward, rewardClaims } from '../lib/rewards'
 import { requestTranslation } from '../lib/translate'
 import { clampLimit, LEADERBOARD_LIMIT } from '../lib/discover'
 import { toInvoice, toPublicProject, toSupporter } from '../serialize'
@@ -21,6 +22,8 @@ const createInvoiceBody = v.object({
   supporterName: v.optional(v.pipe(v.string(), v.trim(), v.maxLength(LIMITS.supporterName.max))),
   comment: v.optional(v.pipe(v.string(), v.trim(), v.maxLength(LIMITS.comment.max))),
   nostrProof: v.optional(nostrEventSchema),
+  rewardId: v.optional(v.pipe(v.string(), v.regex(new RegExp(LIMITS.rewards.id.pattern)))),
+  contact: v.optional(v.pipe(v.string(), v.trim(), v.maxLength(LIMITS.rewards.contact.max))),
 })
 
 /** Public projects are active or closed; drafts are invisible. */
@@ -70,13 +73,14 @@ export const publicRoutes = new Hono<AppEnv>()
     const { project, creator } = await requirePublicProject(c)
     // Projects published before translation existed get one on their first view.
     if (project.enSourceHash === null) requestTranslation(c.env, c.executionCtx, project.id, false)
-    const [supporters, leaders] = await Promise.all([
-      supporterPage(c.var.db, project.id, {}, undefined, PUBLIC_PAGE.supporters),
+    const [supporters, leaders, claims] = await Promise.all([
+      supporterPage(c.var.db, project.id, {}, undefined, PUBLIC_PAGE.supporters, toSupporter),
       leaderRows(c.var.db, project.id, PUBLIC_PAGE.leaders),
+      project.rewards.length ? rewardClaims(c.var.db, [project.id]) : undefined,
     ])
     c.header('cache-control', 'public, max-age=10')
     return c.json({
-      ...toPublicProject(project, creator, mediaBase(c.env, c.req.url)),
+      ...toPublicProject(project, creator, mediaBase(c.env, c.req.url), claims?.get(project.id)),
       supporters,
       leaders: leaders.map(toSupporter),
     } satisfies GetPublicProjectResponse)
@@ -85,7 +89,7 @@ export const publicRoutes = new Hono<AppEnv>()
   .get('/p/:slug/supporters', async (c) => {
     const { project } = await requirePublicProject(c)
     return c.json(
-      (await supporterPage(c.var.db, project.id, {}, c.req.query('cursor'), pageLimit(c.req.query('limit')))) satisfies ListSupportersResponse,
+      (await supporterPage(c.var.db, project.id, {}, c.req.query('cursor'), pageLimit(c.req.query('limit')), toSupporter)) satisfies ListSupportersResponse,
     )
   })
 
@@ -104,12 +108,16 @@ export const publicRoutes = new Hono<AppEnv>()
       throw new ApiError(409, 'project_not_active', 'this project is not accepting payments')
     }
     if (!creator.lightningAddress) throw new ApiError(409, 'lightning_address_missing', 'creator has no Lightning Address')
+    const { nostrProof, rewardId, contact, ...input } = body
+    const reward =
+      rewardId === undefined
+        ? null
+        : chooseReward(project.rewards, (await rewardClaims(c.var.db, [project.id])).get(project.id), { rewardId, amountSats: input.amountSats, contact })
     // The proof only adds a profile picture/name; a bad one never blocks a payment.
-    const { nostrProof, ...input } = body
     const supporterPubkey = nostrProof
       ? await nip98Pubkey(nostrProof, `${publicOrigin(c.env, c.req.url)}/api/p/${project.slug}/invoices`, 'POST')
       : null
-    const row = await createProjectInvoice(c.env, c.var.db, project.id, creator.lightningAddress, { ...input, supporterPubkey })
+    const row = await createProjectInvoice(c.env, c.var.db, project.id, creator.lightningAddress, { ...input, supporterPubkey, reward })
     return c.json(toInvoice(row) satisfies CreateInvoiceResponse, 201)
   })
 

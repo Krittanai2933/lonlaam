@@ -64,6 +64,13 @@
       "when": 1794058094414,
       "tag": "0008_sprinkle_excluded",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1795596786044,
+      "tag": "0009_rewards",
+      "breakpoints": true
     }
   ]
 }

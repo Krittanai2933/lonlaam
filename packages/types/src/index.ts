@@ -20,6 +20,15 @@ export const LIMITS = {
   supporterName: { max: 64 },
   comment: { max: 280 },
   milestones: { max: 10, label: { min: 1, max: 120 } },
+  /** Reward ids are made by the client (short random base36) and unique within a project. */
+  rewards: {
+    max: 10,
+    id: { pattern: '^[a-z0-9]{1,16}$' },
+    title: { min: 1, max: 80 },
+    description: { max: 500 },
+    limit: { min: 1, max: 100_000 },
+    contact: { max: 200 },
+  },
   /** English versions run longer than Thai, so they get more room. */
   translation: { title: 200, summary: 280, body: 30_000, label: 200 },
   /** Hard cap per invoice, independent of what the creator's wallet allows. */
@@ -80,6 +89,8 @@ export type ErrorCode =
   | 'nwc_unreachable'
   /** Email notices are switched off (no RESEND_API_KEY). */
   | 'email_unavailable'
+  /** The chosen reward no longer exists or has none left. */
+  | 'reward_unavailable'
   | 'internal'
 
 export interface ApiErrorBody {
@@ -209,6 +220,22 @@ export interface Milestone {
   label: string
 }
 
+/** A reward tier. Its text is shown as written in every language (never machine-translated). */
+export interface Reward {
+  id: string
+  title: string
+  description: string
+  /** Supporters paying at least this much can choose it. */
+  minSats: number
+  /** How many can be claimed; null = unlimited. */
+  limit: number | null
+}
+
+export interface PublicReward extends Reward {
+  /** Paid invoices with this reward plus unpaid ones that haven't expired. */
+  claimed: number
+}
+
 export interface ProjectStats {
   raisedSats: number
   supporterCount: number
@@ -227,6 +254,8 @@ export interface PublicProject extends ProjectStats {
   goalSats: number | null
   /** Ascending by sats. */
   milestones: Milestone[]
+  /** Ascending by minSats. */
+  rewards: PublicReward[]
   /** Payments are refused after this time. null = open-ended. */
   endsAt: number | null
   status: Exclude<ProjectStatus, 'draft'>
@@ -279,6 +308,7 @@ export interface CreateProjectRequest {
   category?: ProjectCategory | null
   goalSats?: number | null
   milestones?: Milestone[]
+  rewards?: Reward[]
   endsAt?: number | null
 }
 export type CreateProjectResponse = Project
@@ -296,6 +326,8 @@ export interface UpdateProjectRequest {
   category?: ProjectCategory | null
   goalSats?: number | null
   milestones?: Milestone[]
+  /** Paid invoices keep the reward title they were bought with, so editing or removing one is safe. */
+  rewards?: Reward[]
   endsAt?: number | null
   status?: ProjectStatus
   /**
@@ -360,8 +392,8 @@ export const PUBLIC_PAGE = { supporters: 20, leaders: 5 } as const
 export const DISCOVER_SORTS = ['trending', 'new', 'ending', 'funded'] as const
 export type DiscoverSort = (typeof DISCOVER_SORTS)[number]
 
-/** Card-sized project: no story body. */
-export interface ProjectSummary extends Omit<PublicProject, 'body' | 'translation'> {
+/** Card-sized project: no story body or rewards. */
+export interface ProjectSummary extends Omit<PublicProject, 'body' | 'translation' | 'rewards'> {
   translation: Pick<ProjectTranslation, 'lang' | 'title' | 'summary'> | null
   /** Sats received in the last 7 days. */
   weekSats: number
@@ -415,7 +447,14 @@ export interface ProjectStatsResponse {
   previous: { totalSats: number; backers: number } | null
   /** STATS_BUCKETS equal slices of [from, to), oldest first. */
   buckets: { from: number; sats: number; backers: number }[]
-  allTime: { raisedSats: number; backers: number; anonymous: number; goalSats: number | null }
+  allTime: {
+    raisedSats: number
+    backers: number
+    anonymous: number
+    goalSats: number | null
+    /** Paid supporters with a reward the creator hasn't marked sent. */
+    rewardsToSend: number
+  }
 }
 
 // ─── Supporters (paid invoices) ───────────────────────────────────────────────
@@ -437,10 +476,28 @@ export interface ListSupportersResponse {
   nextCursor: string | null
 }
 
-export type SupporterFilter = 'all' | 'message'
+/** Owner view of a supporter: adds the reward they chose and how to reach them. */
+export interface OwnerSupporter extends Supporter {
+  reward: {
+    id: string
+    /** As it was when they paid. */
+    title: string
+    contact: string
+    /** When the creator marked it sent; null = still to send. */
+    sentAt: number | null
+  } | null
+}
+
+export interface ListOwnerSupportersResponse {
+  supporters: OwnerSupporter[]
+  nextCursor: string | null
+}
+
+/** message: left a comment · reward: chose a reward */
+export type SupporterFilter = 'all' | 'message' | 'reward'
 
 /**
- * GET /api/projects/:id/supporters?q=&filter=<SupporterFilter>&limit=&cursor= (owner) → ListSupportersResponse
+ * GET /api/projects/:id/supporters?q=&filter=<SupporterFilter>&limit=&cursor= (owner) → ListOwnerSupportersResponse
  * Add `format=csv` for a text/csv download (up to LIMITS.supportersCsv rows, ignores cursor/limit).
  * `q` matches supporter name or comment (case-insensitive substring).
  */
@@ -451,6 +508,12 @@ export interface ListOwnerSupportersQuery {
   cursor?: string
   format?: 'json' | 'csv'
 }
+
+/** PUT /api/projects/:id/supporters/:invoiceId/reward — 404 unless it is a paid supporter with a reward. */
+export interface SetRewardSentRequest {
+  sent: boolean
+}
+export type SetRewardSentResponse = OwnerSupporter
 
 // ─── Invoices ─────────────────────────────────────────────────────────────────
 
@@ -463,6 +526,13 @@ export interface CreateInvoiceRequest {
   comment?: string
   /** NOSTR_HTTP_AUTH_KIND event. An invalid or stale proof is ignored, not rejected. */
   nostrProof?: NostrEvent
+  /**
+   * A reward of the project: amountSats must be at least its minSats. 409 reward_unavailable when
+   * it was removed or none are left.
+   */
+  rewardId?: string
+  /** How the creator can reach the supporter; required with rewardId, ignored without. Only the creator sees it. */
+  contact?: string
 }
 
 export interface Invoice {

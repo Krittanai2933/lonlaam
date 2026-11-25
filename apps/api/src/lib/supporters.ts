@@ -1,9 +1,8 @@
-import type { ListSupportersResponse, SupporterFilter } from '@nampu/types'
+import type { SupporterFilter } from '@nampu/types'
 import { LIMITS } from '@nampu/types'
 import { type SQL, and, desc, eq, isNotNull, lt, ne, or, sql } from 'drizzle-orm'
 import type { Db } from '../context'
 import { invoices } from '../db/schema'
-import { toSupporter } from '../serialize'
 
 // Cursor = "<paidAt>.<invoiceId>" of the last item on the previous page.
 const encodeCursor = (paidAt: number, id: string) => `${paidAt}.${id}`
@@ -36,6 +35,7 @@ export function supporterRows(db: Db, projectId: string, query: SupporterQuery, 
     conds.push(sql`(${invoices.supporterName} LIKE ${pattern} ESCAPE '\\' OR ${invoices.comment} LIKE ${pattern} ESCAPE '\\')`)
   }
   if (query.filter === 'message') conds.push(and(isNotNull(invoices.comment), ne(invoices.comment, '')))
+  if (query.filter === 'reward') conds.push(isNotNull(invoices.rewardId))
   return db
     .select({
       id: invoices.id,
@@ -44,6 +44,10 @@ export function supporterRows(db: Db, projectId: string, query: SupporterQuery, 
       comment: invoices.comment,
       amountMsat: invoices.amountMsat,
       paidAt: invoices.paidAt,
+      rewardId: invoices.rewardId,
+      rewardTitle: invoices.rewardTitle,
+      contact: invoices.contact,
+      rewardSentAt: invoices.rewardSentAt,
     })
     .from(invoices)
     .where(and(...conds))
@@ -51,18 +55,22 @@ export function supporterRows(db: Db, projectId: string, query: SupporterQuery, 
     .limit(limit)
 }
 
-export async function supporterPage(
+export type SupporterRow = Awaited<ReturnType<typeof supporterRows>>[number]
+
+/** `serialize` decides what is exposed: toSupporter for public routes, toOwnerSupporter for the creator. */
+export async function supporterPage<T>(
   db: Db,
   projectId: string,
   query: SupporterQuery,
   cursorRaw: string | undefined,
   limit: number,
-): Promise<ListSupportersResponse> {
+  serialize: (r: SupporterRow) => T,
+): Promise<{ supporters: T[]; nextCursor: string | null }> {
   const rows = await supporterRows(db, projectId, query, cursorRaw, limit + 1)
   const page = rows.slice(0, limit)
   const last = page.at(-1)
   return {
-    supporters: page.map(toSupporter),
+    supporters: page.map(serialize),
     nextCursor: rows.length > limit && last ? encodeCursor(last.paidAt ?? 0, last.id) : null,
   }
 }
