@@ -27,6 +27,7 @@ test('dashboard: KPIs, search, message filter, CSV, logout', async ({ page }) =>
   const download = page.waitForEvent('download')
   await page.getByRole('button', { name: 'CSV' }).click()
   const csv = readFileSync((await (await download).path())!, 'utf8')
+  expect(csv.startsWith('\uFEFFpaid_at,'), 'CSV opens with a UTF-8 BOM for Excel').toBe(true)
   expect(csv).toContain('รอสมุดอยู่นะคะ')
 
   await page.getByRole('button', { name: 'Desk Creator' }).click()

@@ -412,7 +412,8 @@ export const projectRoutes = new Hono<AppEnv>()
             .join(','),
         )
       }
-      return c.body(lines.join('\r\n') + '\r\n', 200, {
+      // The BOM makes Excel read the file as UTF-8 (Thai names and comments), not the local code page.
+      return c.body('\uFEFF' + lines.join('\r\n') + '\r\n', 200, {
         'content-type': 'text/csv; charset=utf-8',
         'content-disposition': `attachment; filename="${project.slug}-supporters.csv"`,
         'cache-control': 'no-store',
