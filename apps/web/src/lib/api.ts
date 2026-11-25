@@ -8,6 +8,7 @@ import type {
   CreateSprinkleResponse,
   ErrorCode,
   GetInvoiceResponse,
+  ReleaseInvoiceResponse,
   GetMeResponse,
   GetMonthlyResponse,
   GetProjectResponse,
@@ -82,7 +83,11 @@ export function errorText(e: unknown, t: { rateLimited: string; somethingWrong: 
 /** Fired when the server rejects our session so the auth layer can log out. */
 export const UNAUTHORIZED_EVENT = 'nampu:unauthorized'
 
-async function request<T>(method: string, path: string, init: { body?: unknown; raw?: BodyInit; headers?: Record<string, string> } = {}): Promise<T> {
+async function request<T>(
+  method: string,
+  path: string,
+  init: { body?: unknown; raw?: BodyInit; headers?: Record<string, string>; cache?: RequestCache } = {},
+): Promise<T> {
   const token = tokenStore.get()
   const headers: Record<string, string> = { ...init.headers }
   if (token) headers.authorization = `Bearer ${token}`
@@ -91,7 +96,7 @@ async function request<T>(method: string, path: string, init: { body?: unknown; 
     headers['content-type'] = 'application/json'
     body = JSON.stringify(init.body)
   }
-  const res = await fetch(path, { method, headers, body })
+  const res = await fetch(path, { method, headers, body, cache: init.cache })
   if (res.status === 204) return undefined as T
   const data = await res.json().catch(() => null)
   if (!res.ok) {
@@ -119,13 +124,16 @@ export const api = {
 
   // public
   projects: (q: ListProjectsQuery) => request<ListProjectsResponse>('GET', `/api/projects${qs({ ...q })}`),
-  publicProject: (slug: string) => request<GetPublicProjectResponse>('GET', `/api/p/${encodeURIComponent(slug)}`),
+  // Revalidated, not read from the browser cache: a refetch after a reward claim must not bring back
+  // counts from before it (the max-age is for the CDN).
+  publicProject: (slug: string) => request<GetPublicProjectResponse>('GET', `/api/p/${encodeURIComponent(slug)}`, { cache: 'no-cache' }),
   publicSupporters: (slug: string, cursor?: string, limit = 20) =>
     request<ListSupportersResponse>('GET', `/api/p/${encodeURIComponent(slug)}/supporters${qs({ cursor, limit })}`),
   leaderboard: (slug: string, limit = 5) => request<LeaderboardResponse>('GET', `/api/p/${encodeURIComponent(slug)}/leaderboard${qs({ limit })}`),
   createInvoice: (slug: string, body: CreateInvoiceRequest) =>
     request<CreateInvoiceResponse>('POST', `/api/p/${encodeURIComponent(slug)}/invoices`, { body }),
   invoice: (id: string) => request<GetInvoiceResponse>('GET', `/api/invoices/${id}`),
+  releaseInvoice: (id: string) => request<ReleaseInvoiceResponse>('POST', `/api/invoices/${id}/release`),
   sprinkleConfig: () => request<SprinkleConfigResponse>('GET', '/api/sprinkles/config'),
   createSprinkle: (body: CreateSprinkleRequest) => request<CreateSprinkleResponse>('POST', '/api/sprinkles', { body }),
   sprinkle: (id: string) => request<GetSprinkleResponse>('GET', `/api/sprinkles/${id}`),

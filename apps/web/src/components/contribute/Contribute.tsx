@@ -30,14 +30,16 @@ export function ContributeFlow({
   const c = useContribute(project)
   const [confirm, setConfirm] = useState(false)
   const { pickReward } = c
+  // On opening only: pickReward changes with every live count update, which must not undo the
+  // supporter's own pick.
   useEffect(() => {
     if (open && rewardId) pickReward(rewardId)
-  }, [open, rewardId, pickReward])
+  }, [open, rewardId])
   const { t } = useI18n()
   const close = () => (c.hasLiveInvoice ? setConfirm(true) : done())
   const done = () => {
     setConfirm(false)
-    c.reset()
+    c.leave()
     onClose()
   }
   if (!open) return null
