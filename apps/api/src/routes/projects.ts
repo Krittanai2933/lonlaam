@@ -46,6 +46,16 @@ const translationSchema = v.object({
   summary: v.pipe(v.string(), v.trim(), v.maxLength(LIMITS.translation.summary)),
   body: v.pipe(v.string(), v.maxLength(LIMITS.translation.body)),
   milestones: v.pipe(v.array(v.pipe(v.string(), v.trim(), v.maxLength(LIMITS.translation.label))), v.maxLength(LIMITS.milestones.max)),
+  rewards: v.optional(
+    v.record(
+      v.string(),
+      v.object({
+        title: v.pipe(v.string(), v.trim(), v.maxLength(LIMITS.translation.rewardTitle)),
+        description: v.pipe(v.string(), v.trim(), v.maxLength(LIMITS.translation.rewardDescription)),
+      }),
+    ),
+    {},
+  ),
 })
 const categorySchema = v.nullable(v.picklist(PROJECT_CATEGORIES))
 const endsAtSchema = v.nullable(v.pipe(v.number(), v.safeInteger(), v.minValue(0)))
@@ -228,7 +238,7 @@ export const projectRoutes = new Hono<AppEnv>()
 
     if (body.translation === null && current.enManual) {
       // Back to the automatic translation (ProjectTranslator is asked below).
-      Object.assign(patch, { enManual: false, titleEn: null, summaryEn: null, bodyEn: null, milestonesEn: null, enSourceHash: null })
+      Object.assign(patch, { enManual: false, titleEn: null, summaryEn: null, bodyEn: null, milestonesEn: null, rewardsEn: null, enSourceHash: null })
     } else if (body.translation) {
       const tr = body.translation
       const next = { ...current, ...patch }
@@ -243,6 +253,7 @@ export const projectRoutes = new Hono<AppEnv>()
         summaryEn: tr.summary,
         bodyEn: tr.body,
         milestonesEn: tr.milestones,
+        rewardsEn: Object.fromEntries(next.rewards.flatMap((r) => (tr.rewards[r.id] ? [[r.id, tr.rewards[r.id]!]] : []))),
         // What it was written against, so the editor can tell when the Thai moves on.
         enSourceHash: await translationSourceHash(sourceText(next)),
       })
@@ -250,7 +261,7 @@ export const projectRoutes = new Hono<AppEnv>()
 
     try {
       const [row] = await c.var.db.update(projects).set(patch).where(eq(projects.id, current.id)).returning()
-      const textChanged = ['title', 'summary', 'body', 'milestones', 'status', 'enManual'].some((k) => k in patch)
+      const textChanged = ['title', 'summary', 'body', 'milestones', 'rewards', 'status', 'enManual'].some((k) => k in patch)
       if (row!.status !== 'draft' && textChanged) requestTranslation(c.env, c.executionCtx, row!.id, true)
       return c.json((await respond(c, row!)) satisfies UpdateProjectResponse)
     } catch (e) {
@@ -290,7 +301,11 @@ export const projectRoutes = new Hono<AppEnv>()
     const apiKey = c.env.ANTHROPIC_API_KEY
     if (!apiKey) throw new ApiError(503, 'translation_unavailable', 'automatic translation is switched off')
     try {
-      return c.json((await translateToEnglish(apiKey, sourceText(current))) satisfies TranslateProjectResponse)
+      const out = await translateToEnglish(apiKey, sourceText(current))
+      return c.json({
+        ...out,
+        rewards: Object.fromEntries(current.rewards.map((r, i) => [r.id, out.rewards[i]!])),
+      } satisfies TranslateProjectResponse)
     } catch (e) {
       console.warn('translate (editor) failed', { project: current.id, error: e instanceof Error ? e.message : String(e) })
       throw new ApiError(503, 'translation_unavailable', 'automatic translation failed, try again')

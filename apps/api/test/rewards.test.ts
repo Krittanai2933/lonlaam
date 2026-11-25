@@ -4,8 +4,10 @@ import * as v from 'valibot'
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '../src/lib/errors'
 import { chooseReward, rewardsSchema, toPublicRewards } from '../src/lib/rewards'
-import { toOwnerSupporter, toSupporter } from '../src/serialize'
+import type { ProjectRow } from '../src/db/schema'
+import { toOwnerSupporter, toPublicProject, toSupporter } from '../src/serialize'
 
+const claims = (o: Record<string, number>) => new Map(Object.entries(o).map(([id, n]) => [id, { claimed: n, backers: n }]))
 const reward = (over: Partial<Reward> = {}): Reward => ({ id: 'a1', title: 'Postcard', description: '', minSats: 1000, limit: null, ...over })
 
 describe('rewardsSchema', () => {
@@ -90,17 +92,21 @@ describe('chooseReward', () => {
 
   it('refuses a limited reward once its claims reach the limit', () => {
     const input = { rewardId: 'shirt', amountSats: 5000, contact: 'x' }
-    expect(chooseReward(rewards, new Map([['shirt', 1]]), input).id).toBe('shirt')
-    expect(fail(() => chooseReward(rewards, new Map([['shirt', 2]]), input))).toMatchObject({ status: 409, code: 'reward_unavailable' })
+    expect(chooseReward(rewards, claims({ shirt: 1 }), input).id).toBe('shirt')
+    expect(fail(() => chooseReward(rewards, claims({ shirt: 2 }), input))).toMatchObject({ status: 409, code: 'reward_unavailable' })
     // Unlimited rewards ignore claims.
-    expect(chooseReward(rewards, new Map([['card', 10_000]]), { ...input, rewardId: 'card' }).id).toBe('card')
+    expect(chooseReward(rewards, claims({ card: 10_000 }), { ...input, rewardId: 'card' }).id).toBe('card')
   })
 })
 
 describe('reward serialization', () => {
   it('adds claim counts to public rewards', () => {
-    expect(toPublicRewards([reward({ id: 'a' }), reward({ id: 'b' })], new Map([['b', 3]])).map((r) => r.claimed)).toEqual([0, 3])
-    expect(toPublicRewards([reward()], undefined)[0]!.claimed).toBe(0)
+    const rs = toPublicRewards([reward({ id: 'a' }), reward({ id: 'b' })], new Map([['b', { claimed: 3, backers: 2 }]]))
+    expect(rs.map((r) => [r.claimed, r.backers])).toEqual([
+      [0, 0],
+      [3, 2],
+    ])
+    expect(toPublicRewards([reward()], undefined)[0]).toMatchObject({ claimed: 0, backers: 0 })
   })
 
   it('shows the contact to the owner only', () => {
@@ -116,8 +122,32 @@ describe('reward serialization', () => {
       contact: 'kaew@example.com',
       rewardSentAt: null,
     }
+    expect(toSupporter(row).reward).toEqual({ id: 'shirt', title: 'T-shirt' })
     expect(JSON.stringify(toSupporter(row))).not.toContain('kaew@example.com')
     expect(toOwnerSupporter(row).reward).toEqual({ id: 'shirt', title: 'T-shirt', contact: 'kaew@example.com', sentAt: null })
     expect(toOwnerSupporter({ ...row, rewardId: null, rewardTitle: null, contact: null }).reward).toBeNull()
+  })
+})
+
+describe('reward translation', () => {
+  const row = {
+    title: 'ห้องสมุด',
+    summary: '',
+    body: '',
+    milestones: [],
+    rewards: [reward({ id: 'a', title: 'โปสการ์ด', description: 'ส่งจากดอย' }), reward({ id: 'b', title: 'เสื้อ', description: 'ไซส์ M' })],
+    titleEn: 'Library',
+    summaryEn: '',
+    bodyEn: '',
+    milestonesEn: [],
+    rewardsEn: { a: { title: 'Postcard', description: '' }, gone: { title: 'Old', description: 'x' } },
+    enManual: false,
+  } as unknown as ProjectRow
+  it('uses the English text by id and falls back to the original', () => {
+    const p = toPublicProject({ ...row, status: 'active' } as ProjectRow, { handle: 'h', displayName: 'H', npub: null }, 'https://m', undefined)
+    expect(p.translation!.rewards).toEqual([
+      { id: 'a', title: 'Postcard', description: 'ส่งจากดอย' },
+      { id: 'b', title: 'เสื้อ', description: 'ไซส์ M' },
+    ])
   })
 })

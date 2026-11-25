@@ -1,4 +1,4 @@
-import type { Milestone, Reward } from '@nampu/types'
+import type { Milestone, Reward, RewardText } from '@nampu/types'
 import { sql } from 'drizzle-orm'
 import { check, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
@@ -78,13 +78,15 @@ export const projects = sqliteTable(
     status: text('status', { enum: ['draft', 'active', 'closed'] }).notNull().default('draft'),
     publishedAt: integer('published_at'),
     /**
-     * English machine translation of title/summary/body/milestone labels (ProjectTranslator).
+     * English machine translation of title/summary/body/milestone labels/rewards (ProjectTranslator).
      * Null when there is none yet, or when the creator already wrote in English.
      */
     titleEn: text('title_en'),
     summaryEn: text('summary_en'),
     bodyEn: text('body_en'),
     milestonesEn: text('milestones_en', { mode: 'json' }).$type<string[]>(),
+    /** By reward id, so reordering or removing rewards keeps the rest. */
+    rewardsEn: text('rewards_en', { mode: 'json' }).$type<Record<string, RewardText>>(),
     /** translationSourceHash() of the text the *_en columns were made from (or judged not to need translating). */
     enSourceHash: text('en_source_hash'),
     /** The creator wrote the *_en columns in the editor; ProjectTranslator leaves them alone. */

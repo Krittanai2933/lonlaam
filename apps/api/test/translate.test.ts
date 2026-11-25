@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { checkTranslation, needsTranslation, type TranslationText, translationSourceHash } from '../src/lib/translate'
+import { sha256Hex } from '../src/lib/util'
 
-const text = (over: Partial<TranslationText> = {}): TranslationText => ({ title: '', summary: '', body: '', milestones: [], ...over })
+const text = (over: Partial<TranslationText> = {}): TranslationText => ({ title: '', summary: '', body: '', milestones: [], rewards: [], ...over })
 
 describe('needsTranslation', () => {
   it('translates Thai, including Thai with some English terms', () => {
     expect(needsTranslation(text({ title: 'ห้องสมุดชุมชน', body: 'เราจะซื้อหนังสือ Bitcoin และ Lightning ให้เด็กๆ' }))).toBe(true)
+  })
+  it('counts reward text', () => {
+    expect(needsTranslation(text({ title: 'Library', rewards: [{ title: 'โปสการ์ดขอบคุณ', description: 'ส่งจากห้องสมุดบนดอย' }] }))).toBe(true)
   })
   it('skips English and empty text', () => {
     expect(needsTranslation(text({ title: 'Community library', body: 'We will buy books. ขอบคุณ' }))).toBe(false)
@@ -22,9 +26,23 @@ describe('translationSourceHash', () => {
     const base = text({ title: 'ก', summary: 'ข', body: 'ค', milestones: ['ง'] })
     const h = await translationSourceHash(base)
     expect(await translationSourceHash({ ...base })).toBe(h)
-    for (const over of [{ title: 'x' }, { summary: 'x' }, { body: 'x' }, { milestones: ['x'] }, { milestones: ['ง', 'x'] }]) {
+    const reward = { title: 'โปสการ์ด', description: 'ส่งจากดอย' }
+    for (const over of [
+      { title: 'x' },
+      { summary: 'x' },
+      { body: 'x' },
+      { milestones: ['x'] },
+      { milestones: ['ง', 'x'] },
+      { rewards: [reward] },
+      { rewards: [{ ...reward, description: 'x' }] },
+    ]) {
       expect(await translationSourceHash({ ...base, ...over })).not.toBe(h)
     }
+  })
+
+  it('is unchanged for projects without rewards, so their translations stay current', async () => {
+    const base = text({ title: 'ก', summary: 'ข', body: 'ค', milestones: ['ง'] })
+    expect(await translationSourceHash(base)).toBe(await sha256Hex(JSON.stringify(['v1', 'ก', 'ข', 'ค', ['ง']])))
   })
 })
 
@@ -38,6 +56,9 @@ describe('checkTranslation', () => {
     expect(() => checkTranslation(src, { ...ok, milestones: ['D'] })).toThrow(/milestones/)
     expect(() => checkTranslation(src, { ...ok, body: 'See [site](https://example.com/a)' })).toThrow(/URL/)
     expect(() => checkTranslation(src, { ...ok, summary: ' ' })).toThrow(/summary/)
+    const withReward = { ...src, rewards: [{ title: 'โปสการ์ด', description: '' }] }
+    expect(() => checkTranslation(withReward, ok)).toThrow(/rewards/)
+    expect(() => checkTranslation(withReward, { ...ok, rewards: [{ title: 'Postcard', description: '' }] })).not.toThrow()
   })
   it('allows empty output for empty input', () => {
     expect(() => checkTranslation(text({ title: 'ก' }), text({ title: 'A' }))).not.toThrow()
