@@ -150,3 +150,7 @@ unique within your Cloudflare account. Invoices are also capped at 50 pending pe
 `--color-accent-700`, …) double as Tailwind utilities (`bg-bg`, `text-accent-700`, `border-divider`,
 `text-success`, `font-heading`, `text-h1`, `p-s3`, `rounded-md`, `shadow-md`). Dark mode redefines the
 same variables under `[data-theme=dark]`, with a `dark:` variant for the rare exception.
+
+## License
+
+[MIT](LICENSE)
