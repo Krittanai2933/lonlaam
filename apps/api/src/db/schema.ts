@@ -1,4 +1,4 @@
-import type { Milestone } from '@nampu/types'
+import type { Milestone, Reward } from '@nampu/types'
 import { sql } from 'drizzle-orm'
 import { check, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
@@ -69,6 +69,7 @@ export const projects = sqliteTable(
     category: text('category', { enum: ['edu', 'media', 'tech', 'community', 'art'] }),
     goalSats: integer('goal_sats'),
     milestones: text('milestones', { mode: 'json' }).$type<Milestone[]>().notNull().default(sql`'[]'`),
+    rewards: text('rewards', { mode: 'json' }).$type<Reward[]>().notNull().default(sql`'[]'`),
     /** Payments are refused after this time. */
     endsAt: integer('ends_at'),
     /** Denormalized from paid invoices; updated in the same D1 batch as the invoice. */
@@ -124,6 +125,16 @@ export const invoices = sqliteTable(
     createdAt: integer('created_at').notNull().default(now),
     expiresAt: integer('expires_at').notNull(),
     paidAt: integer('paid_at'),
+    /**
+     * The reward the supporter chose, with its title as it was then: the creator may edit or
+     * remove the reward later and must still see what this supporter is owed.
+     */
+    rewardId: text('reward_id'),
+    rewardTitle: text('reward_title'),
+    /** How the creator can reach the supporter (with a reward only). Owner-only; never public or broadcast. */
+    contact: text('contact'),
+    /** Marked sent by the creator; a paid invoice with a reward and no reward_sent_at is still to send. */
+    rewardSentAt: integer('reward_sent_at'),
   },
   (t) => [
     // Supporter feed / stats (status = 'paid' AND paid_at range) and pending-count checks.

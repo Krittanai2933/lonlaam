@@ -19,7 +19,14 @@ export async function createProjectInvoice(
   db: Db,
   projectId: string,
   lightningAddress: string,
-  input: { amountSats: number; supporterName?: string | null; supporterPubkey?: string | null; comment?: string | null },
+  input: {
+    amountSats: number
+    supporterName?: string | null
+    supporterPubkey?: string | null
+    comment?: string | null
+    /** Direct support only; sprinkle payouts never carry a reward. */
+    reward?: { id: string; title: string; contact: string } | null
+  },
 ): Promise<InvoiceRow> {
   const opts = lnurlOptions(env)
   const amountMsat = input.amountSats * 1000
@@ -70,6 +77,9 @@ export async function createProjectInvoice(
         supporterName: input.supporterName || null,
         supporterPubkey: input.supporterPubkey || null,
         comment: input.comment || null,
+        rewardId: input.reward?.id ?? null,
+        rewardTitle: input.reward?.title ?? null,
+        contact: input.reward?.contact ?? null,
         bolt11: cb.pr,
         paymentHash: decoded.paymentHash,
         verifyUrl: cb.verify,
