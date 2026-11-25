@@ -40,7 +40,7 @@ test('onboard, build a project in the wizard, publish, and see a payment arrive 
   await page.getByLabel('sats').first().fill('5000')
   await page.getByLabel('รายละเอียด').first().fill('มือถือ 5 เครื่องแรก')
   await page.getByRole('button', { name: 'ถัดไป' }).click()
-  await expect(page.getByText('เร็วๆ นี้').first()).toBeVisible() // rewards: coming soon
+  await expect(page.getByRole('button', { name: 'เพิ่มรางวัล' })).toBeEnabled() // rewards are optional
   await page.getByRole('button', { name: 'ถัดไป' }).click()
 
   // Step 5: publishing needs a LUD-21-capable Lightning Address
