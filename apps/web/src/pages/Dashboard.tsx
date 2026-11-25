@@ -144,17 +144,33 @@ function RewardCell({ projectId, s }: { projectId: string; s: OwnerSupporter }) 
           <span className="truncate">{s.reward.title}</span>
         </div>
         <div className="text-xs break-all text-neutral-600 select-all">{s.reward.contact}</div>
+        {sent ? (
+          <div className="mt-1 flex items-center gap-1.5 text-xs">
+            <span className="flex items-center gap-1 text-success">
+              <Icon name="check" size={14} />
+              {t.rewardSent}
+            </span>
+            <span className="text-neutral-500">·</span>
+            <button
+              type="button"
+              className="cursor-pointer text-neutral-600 underline underline-offset-2 hover:text-fg disabled:opacity-50"
+              disabled={mark.isPending}
+              onClick={() => mark.mutate(false)}
+            >
+              {t.undo}
+            </button>
+          </div>
+        ) : (
+          <Tag tone="accent" className="mt-1">
+            {t.rewardPending}
+          </Tag>
+        )}
       </div>
-      <Button
-        variant={sent ? 'secondary' : 'ghost'}
-        icon={sent ? 'check' : undefined}
-        aria-pressed={sent}
-        className={cx('h-8 flex-none text-[13px]', !sent && 'border border-dashed border-divider')}
-        loading={mark.isPending}
-        onClick={() => mark.mutate(!sent)}
-      >
-        {t.markSent}
-      </Button>
+      {!sent && (
+        <Button variant="secondary" icon="check" className="h-8 flex-none text-[13px]" loading={mark.isPending} onClick={() => mark.mutate(true)}>
+          {t.markSent}
+        </Button>
+      )}
     </div>
   )
 }
@@ -193,8 +209,15 @@ function MobileDashboard({ project }: { project: Project }) {
         <StatusBanner project={project} />
         {view === 'rewards' ? (
           <>
-            <div className="mt-2 mb-1 text-[13px] text-neutral-700">{t.rewardsToSend}</div>
-            <div className="tnum font-heading text-[44px] leading-[1.1]">{fmt(allStats.data?.allTime.rewardsToSend ?? 0)}</div>
+            <div className="mt-2 flex items-end justify-between">
+              <div>
+                <div className="mb-1 text-[13px] text-neutral-700">{t.rewardsToSend}</div>
+                <div className="tnum text-[34px] leading-[1.1] font-medium">{fmt(allStats.data?.allTime.rewardsToSend ?? 0)}</div>
+              </div>
+              <Button variant="ghost" icon="download" onClick={() => void api.downloadSupportersCsv(project.id, { filter: 'reward' }, csvName(project))}>
+                CSV
+              </Button>
+            </div>
             <SupporterList query={supporters} projectId={project.id} rewards />
           </>
         ) : (
