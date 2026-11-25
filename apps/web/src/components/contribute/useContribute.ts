@@ -1,5 +1,7 @@
 import type { Invoice, NostrEvent, PublicProject } from '@nampu/types'
+import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { LIMITS } from '@nampu/types'
 import { api, ApiError } from '../../lib/api'
 import { signSupporterProof } from '../../lib/nostr'
 
@@ -13,8 +15,12 @@ export const PRESETS = [1000, 5000, 10000, 21000, 50000, 100000]
  * GET /api/invoices/:id poll as a fallback (5s while the socket is down, 30s otherwise).
  */
 export function useContribute(project: PublicProject) {
+  const qc = useQueryClient()
   const [state, setState] = useState<FlowState>('amount')
   const [amount, setAmount] = useState(21000)
+  const [rewardId, setRewardId] = useState<string | null>(null)
+  const [contact, setContact] = useState('')
+  const reward = project.rewards.find((r) => r.id === rewardId) ?? null
   const [anon, setAnon] = useState(false)
   const [name, setName] = useState('')
   // Signed when the supporter fills their name from Nostr; dropped if they retype the name.
@@ -43,13 +49,23 @@ export function useContribute(project: PublicProject) {
         ...(!anon && name.trim() && { supporterName: name.trim() }),
         ...(proof && { nostrProof: proof }),
         ...(message.trim() && { comment: message.trim() }),
+        ...(reward && { rewardId: reward.id, contact: contact.trim() }),
       })
       if (id !== reqId.current) return
+      // Refresh "x left" for this supporter only; other viewers pick it up on their next load.
+      if (reward) void qc.invalidateQueries({ queryKey: ['public', project.slug] })
       setInvoice(inv)
       setState('invoice')
     } catch (e) {
       if (id !== reqId.current) return
       // Amount problems belong on the amount step, not the error screen.
+      if (e instanceof ApiError && e.code === 'reward_unavailable') {
+        void qc.invalidateQueries({ queryKey: ['public', project.slug] })
+        setRewardId(null)
+        setAmountError(e.code)
+        setState('amount')
+        return
+      }
       if (e instanceof ApiError && (e.code === 'amount_out_of_range' || e.code === 'validation_failed')) {
         setAmountError(e.message)
         setState('amount')
@@ -58,7 +74,18 @@ export function useContribute(project: PublicProject) {
       setError(e instanceof Error ? e : new Error(String(e)))
       setState('error')
     }
-  }, [project.slug, amount, anon, name, nostrProof, message])
+  }, [project.slug, amount, anon, name, nostrProof, message, reward, contact, qc])
+
+  /** Picking a reward raises the amount to its minimum. */
+  const pickReward = useCallback(
+    (id: string | null) => {
+      setRewardId(id)
+      setAmountError(null)
+      const min = project.rewards.find((r) => r.id === id)?.minSats ?? 0
+      setAmount((a) => Math.max(a, min))
+    },
+    [project.rewards],
+  )
 
   const reset = useCallback(() => {
     reqId.current++
@@ -144,6 +171,13 @@ export function useContribute(project: PublicProject) {
     },
     message,
     setMessage,
+    rewards: project.rewards,
+    reward,
+    pickReward,
+    contact,
+    setContact,
+    /** Ready to create an invoice: amount in range and, with a reward, enough for it plus a contact. */
+    canCreate: amount >= LIMITS.invoiceSats.min && amount <= LIMITS.invoiceSats.max && (!reward || (amount >= reward.minSats && !!contact.trim())),
     invoice,
     error,
     amountError,

@@ -15,6 +15,7 @@ import type {
   GetSprinkleResponse,
   LeaderboardResponse,
   ListMyProjectsResponse,
+  ListOwnerSupportersResponse,
   ListOwnerSupportersQuery,
   ListProjectsQuery,
   ListProjectsResponse,
@@ -29,6 +30,7 @@ import type {
   ProjectStatsResponse,
   PutMonthlyRequest,
   PutMonthlyResponse,
+  SetRewardSentResponse,
   SprinkleConfigResponse,
   StatsRange,
   TranslateProjectResponse,
@@ -153,7 +155,9 @@ export const api = {
   stats: (id: string, range: StatsRange) =>
     request<ProjectStatsResponse>('GET', `/api/projects/${id}/stats${qs({ range, tz: -new Date().getTimezoneOffset() })}`),
   supporters: (id: string, q: Omit<ListOwnerSupportersQuery, 'format'>) =>
-    request<ListSupportersResponse>('GET', `/api/projects/${id}/supporters${qs({ ...q })}`),
+    request<ListOwnerSupportersResponse>('GET', `/api/projects/${id}/supporters${qs({ ...q })}`),
+  setRewardSent: (id: string, invoiceId: string, sent: boolean) =>
+    request<SetRewardSentResponse>('PUT', `/api/projects/${id}/supporters/${invoiceId}/reward`, { body: { sent } }),
 
   /** Authenticated CSV download (can't be a plain link because of the bearer header). */
   async downloadSupportersCsv(id: string, q: Omit<ListOwnerSupportersQuery, 'format' | 'cursor' | 'limit'>, filename: string) {

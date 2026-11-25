@@ -1,4 +1,4 @@
-import type { Milestone, Project, ProjectCategory, ProjectTranslationInput, UpdateProjectRequest } from '@nampu/types'
+import type { Milestone, Project, ProjectCategory, ProjectTranslationInput, Reward, UpdateProjectRequest } from '@nampu/types'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError } from '../../lib/api'
@@ -12,6 +12,8 @@ export interface FormState {
   goalSats: number | null
   endsAt: number | null
   milestones: Milestone[]
+  /** minSats 0 = not filled in yet. */
+  rewards: Reward[]
   /** The creator's own English version; null = readers get the automatic translation. */
   en: EnglishForm | null
 }
@@ -24,7 +26,7 @@ export interface EnglishForm {
   milestones: Record<number, string>
 }
 
-export const emptyForm: FormState = { title: '', slug: '', summary: '', body: '', category: null, goalSats: null, endsAt: null, milestones: [], en: null }
+export const emptyForm: FormState = { title: '', slug: '', summary: '', body: '', category: null, goalSats: null, endsAt: null, milestones: [], rewards: [], en: null }
 
 /** Fill the English form from a translation (labels matched to milestones by position). */
 export const englishForm = (tr: ProjectTranslationInput, milestones: Milestone[]): EnglishForm => ({
@@ -52,6 +54,7 @@ export const formFromProject = (p: Project): FormState => ({
   goalSats: p.goalSats,
   endsAt: p.endsAt,
   milestones: p.milestones,
+  rewards: p.rewards.map(({ claimed: _c, ...r }) => r),
   en:
     p.translation?.by === 'creator'
       ? // Labels the creator left empty come back as the original; show them empty again.
@@ -67,6 +70,16 @@ export const cleanMilestones = (ms: Milestone[]) =>
     .sort((a, b) => a.sats - b.sats)
     .filter((m, i, arr) => i === 0 || m.sats !== arr[i - 1]!.sats)
 
+/** Rewards being edited may be incomplete; only send the ones with a title and an amount, sorted like the server stores them. */
+export const cleanRewards = (rs: Reward[]): Reward[] =>
+  rs
+    .filter((r) => r.minSats > 0 && r.title.trim())
+    .map((r) => ({ ...r, title: r.title.trim(), description: r.description.trim() }))
+    .sort((a, b) => a.minSats - b.minSats)
+
+/** Short random base36 id (LIMITS.rewards.id). */
+export const newRewardId = () => Array.from(crypto.getRandomValues(new Uint8Array(10)), (b) => (b % 36).toString(36)).join('')
+
 function diff(a: FormState, b: FormState): UpdateProjectRequest {
   const out: UpdateProjectRequest = {}
   if (a.title !== b.title) out.title = b.title
@@ -79,6 +92,9 @@ function diff(a: FormState, b: FormState): UpdateProjectRequest {
   const ma = JSON.stringify(cleanMilestones(a.milestones))
   const mb = JSON.stringify(cleanMilestones(b.milestones))
   if (ma !== mb) out.milestones = cleanMilestones(b.milestones)
+  const ra = JSON.stringify(cleanRewards(a.rewards))
+  const rb = JSON.stringify(cleanRewards(b.rewards))
+  if (ra !== rb) out.rewards = cleanRewards(b.rewards)
   // English needs a title; until it has one, hold the change back.
   const ta = translationInput(a)
   const tb = translationInput(b)
