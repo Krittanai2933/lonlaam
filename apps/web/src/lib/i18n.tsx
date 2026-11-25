@@ -95,6 +95,12 @@ const th = {
   removeReward: 'ลบรางวัล', // (added)
   rewardClaimed: 'มีคนเลือกแล้ว {n} คน', // (added)
   rewardsInvalid: 'ตรวจรางวัลอีกครั้ง: ต้องมีชื่อและยอดขั้นต่ำ', // (added)
+  rewardNeedsTitle: 'ใส่ชื่อรางวัล รางวัลนี้จะยังไม่ถูกบันทึกจนกว่าจะมีชื่อ', // (added)
+  rewardNeedsMin: 'ใส่ยอดขั้นต่ำ รางวัลนี้จะยังไม่ถูกบันทึกจนกว่าจะมียอด', // (added)
+  rewardsIncomplete: 'มีรางวัลที่กรอกไม่ครบ ยังไม่ถูกบันทึก', // (added)
+  removeRewardTitle: 'ลบรางวัลนี้?', // (added)
+  removeRewardBody: 'มีคนเลือก “{title}” แล้ว {n} คน คุณยังเห็นรายชื่อและสิ่งที่ต้องส่งในแดชบอร์ดตามเดิม แต่จะไม่มีใครเลือกรางวัลนี้ได้อีก', // (added)
+  keepReward: 'เก็บไว้', // (added)
   lnOk: 'ตรวจสอบแล้ว รับ sats ได้',
   lnChecking: 'กำลังตรวจสอบ…', // (added)
   lnFormat: 'รูปแบบต้องเป็น name@domain.com',
@@ -146,7 +152,10 @@ const th = {
   supporter: 'ผู้สนับสนุน',
   message: 'ข้อความ',
   reward: 'รางวัล',
-  markSent: 'ส่งแล้ว', // (added)
+  markSent: 'ทำเครื่องหมายว่าส่งแล้ว', // (added)
+  rewardPending: 'รอส่ง', // (added)
+  rewardSent: 'ส่งแล้ว', // (added)
+  undo: 'เลิกทำ', // (added)
   allSent: 'ส่งครบแล้ว', // (added)
   showRewards: 'ดูรายการ', // (added)
   noRewardsChosen: 'ยังไม่มีใครเลือกรางวัล', // (added)
@@ -313,6 +322,9 @@ const th = {
   rewardFrom: '{sats} sats ขึ้นไป', // (added)
   rewardLeft: 'เหลือ {n}', // (added)
   rewardBackers: 'ผู้สนับสนุน {n} คน', // (added)
+  rewardBackersOne: 'ผู้สนับสนุน {n} คน', // (added)
+  readMore: 'อ่านต่อ', // (added)
+  readLess: 'ย่อ', // (added)
   soldOut: 'หมดแล้ว', // (added)
   contactPh: 'ผู้สร้างติดต่อคุณทางไหน: อีเมล, Nostr, LINE…', // (added)
   contactNote: 'เห็นเฉพาะผู้สร้าง ใช้สำหรับส่งรางวัล', // (added)
@@ -438,6 +450,12 @@ const en: Dict = {
   removeReward: 'Remove reward',
   rewardClaimed: 'Chosen by {n} so far',
   rewardsInvalid: 'Check the rewards: each needs a name and a minimum amount.',
+  rewardNeedsTitle: "Add a name. This reward isn't saved until it has one.",
+  rewardNeedsMin: "Add a minimum amount. This reward isn't saved until it has one.",
+  rewardsIncomplete: 'An incomplete reward is not saved',
+  removeRewardTitle: 'Remove this reward?',
+  removeRewardBody: "Supporters have already chosen “{title}” ({n} so far). You'll still see who is owed it on the dashboard, but no one new can pick it.",
+  keepReward: 'Keep it',
   lnOk: 'Verified, can receive sats',
   lnChecking: 'Checking…',
   lnFormat: 'Must look like name@domain.com',
@@ -488,7 +506,10 @@ const en: Dict = {
   supporter: 'Supporter',
   message: 'Message',
   reward: 'Reward',
-  markSent: 'Sent',
+  markSent: 'Mark sent',
+  rewardPending: 'To send',
+  rewardSent: 'Sent',
+  undo: 'Undo',
   allSent: 'All sent',
   showRewards: 'Show list',
   noRewardsChosen: 'No one has chosen a reward yet',
@@ -648,6 +669,9 @@ const en: Dict = {
   rewardFrom: '{sats} sats or more',
   rewardLeft: '{n} left',
   rewardBackers: '{n} backers',
+  rewardBackersOne: '{n} backer',
+  readMore: 'More',
+  readLess: 'Less',
   soldOut: 'Sold out',
   contactPh: 'How should the creator reach you: email, Nostr, LINE…',
   contactNote: 'Only the creator sees this, to send your reward.',
