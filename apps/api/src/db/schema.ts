@@ -1,4 +1,4 @@
-import type { Milestone } from '@nampu/types'
+import type { Milestone, Reward, RewardText } from '@nampu/types'
 import { sql } from 'drizzle-orm'
 import { check, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
@@ -69,6 +69,7 @@ export const projects = sqliteTable(
     category: text('category', { enum: ['edu', 'media', 'tech', 'community', 'art'] }),
     goalSats: integer('goal_sats'),
     milestones: text('milestones', { mode: 'json' }).$type<Milestone[]>().notNull().default(sql`'[]'`),
+    rewards: text('rewards', { mode: 'json' }).$type<Reward[]>().notNull().default(sql`'[]'`),
     /** Payments are refused after this time. */
     endsAt: integer('ends_at'),
     /** Denormalized from paid invoices; updated in the same D1 batch as the invoice. */
@@ -77,13 +78,15 @@ export const projects = sqliteTable(
     status: text('status', { enum: ['draft', 'active', 'closed'] }).notNull().default('draft'),
     publishedAt: integer('published_at'),
     /**
-     * English machine translation of title/summary/body/milestone labels (ProjectTranslator).
+     * English machine translation of title/summary/body/milestone labels/rewards (ProjectTranslator).
      * Null when there is none yet, or when the creator already wrote in English.
      */
     titleEn: text('title_en'),
     summaryEn: text('summary_en'),
     bodyEn: text('body_en'),
     milestonesEn: text('milestones_en', { mode: 'json' }).$type<string[]>(),
+    /** By reward id, so reordering or removing rewards keeps the rest. */
+    rewardsEn: text('rewards_en', { mode: 'json' }).$type<Record<string, RewardText>>(),
     /** translationSourceHash() of the text the *_en columns were made from (or judged not to need translating). */
     enSourceHash: text('en_source_hash'),
     /** The creator wrote the *_en columns in the editor; ProjectTranslator leaves them alone. */
@@ -124,6 +127,16 @@ export const invoices = sqliteTable(
     createdAt: integer('created_at').notNull().default(now),
     expiresAt: integer('expires_at').notNull(),
     paidAt: integer('paid_at'),
+    /**
+     * The reward the supporter chose, with its title as it was then: the creator may edit or
+     * remove the reward later and must still see what this supporter is owed.
+     */
+    rewardId: text('reward_id'),
+    rewardTitle: text('reward_title'),
+    /** How the creator can reach the supporter (with a reward only). Owner-only; never public or broadcast. */
+    contact: text('contact'),
+    /** Marked sent by the creator; a paid invoice with a reward and no reward_sent_at is still to send. */
+    rewardSentAt: integer('reward_sent_at'),
   },
   (t) => [
     // Supporter feed / stats (status = 'paid' AND paid_at range) and pending-count checks.

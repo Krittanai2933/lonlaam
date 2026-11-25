@@ -3,9 +3,10 @@ import type {
   CoverContentType,
   CreateProjectResponse,
   GetProjectResponse,
-  ListSupportersResponse,
+  ListOwnerSupportersResponse,
   ProjectStatsResponse,
   ProjectStatus,
+  SetRewardSentResponse,
   StatsRange,
   SupporterFilter,
   TranslateProjectResponse,
@@ -14,20 +15,21 @@ import type {
   UploadImageResponse,
 } from '@nampu/types'
 import { LIMITS, PROJECT_CATEGORIES, STATS_BUCKETS, STATS_RANGES } from '@nampu/types'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNotNull, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 import * as v from 'valibot'
 import { type AppEnv, mediaBase } from '../context'
 import { isUniqueViolation } from '../db/errors'
-import { type ProjectRow, projects } from '../db/schema'
+import { invoices, type ProjectRow, projects } from '../db/schema'
 import { ApiError, notFound } from '../lib/errors'
+import { rewardClaims, rewardsSchema } from '../lib/rewards'
 import { pageLimit, supporterPage, supporterRows } from '../lib/supporters'
 import { requestTranslation, sourceText, translateToEnglish, translationSourceHash } from '../lib/translate'
 import { msatToSats, newId } from '../lib/util'
 import { bodySchema, goalSchema, json, slugSchema, summarySchema, titleSchema } from '../lib/validate'
 import { requireCreator, requireOnboarded } from '../middleware'
-import { coverUrl, toOwnerProject } from '../serialize'
+import { coverUrl, toOwnerProject, toOwnerSupporter } from '../serialize'
 
 const milestonesSchema = v.pipe(
   v.array(
@@ -44,6 +46,16 @@ const translationSchema = v.object({
   summary: v.pipe(v.string(), v.trim(), v.maxLength(LIMITS.translation.summary)),
   body: v.pipe(v.string(), v.maxLength(LIMITS.translation.body)),
   milestones: v.pipe(v.array(v.pipe(v.string(), v.trim(), v.maxLength(LIMITS.translation.label))), v.maxLength(LIMITS.milestones.max)),
+  rewards: v.optional(
+    v.record(
+      v.string(),
+      v.object({
+        title: v.pipe(v.string(), v.trim(), v.maxLength(LIMITS.translation.rewardTitle)),
+        description: v.pipe(v.string(), v.trim(), v.maxLength(LIMITS.translation.rewardDescription)),
+      }),
+    ),
+    {},
+  ),
 })
 const categorySchema = v.nullable(v.picklist(PROJECT_CATEGORIES))
 const endsAtSchema = v.nullable(v.pipe(v.number(), v.safeInteger(), v.minValue(0)))
@@ -56,6 +68,7 @@ const createBody = v.object({
   category: v.optional(categorySchema),
   goalSats: v.optional(goalSchema),
   milestones: v.optional(milestonesSchema),
+  rewards: v.optional(rewardsSchema),
   endsAt: v.optional(endsAtSchema),
 })
 
@@ -67,6 +80,7 @@ const updateBody = v.object({
   category: v.optional(categorySchema),
   goalSats: v.optional(goalSchema),
   milestones: v.optional(milestonesSchema),
+  rewards: v.optional(rewardsSchema),
   endsAt: v.optional(endsAtSchema),
   status: v.optional(v.picklist(['draft', 'active', 'closed'])),
   translation: v.optional(v.nullable(translationSchema)),
@@ -98,7 +112,10 @@ async function ownProject(c: Context<AppEnv>): Promise<ProjectRow> {
   return row
 }
 
-const respond = (c: Context<AppEnv>, row: ProjectRow) => toOwnerProject(row, c.var.creator, mediaBase(c.env, c.req.url))
+async function respond(c: Context<AppEnv>, row: ProjectRow) {
+  const claims = row.rewards.length ? (await rewardClaims(c.var.db, [row.id])).get(row.id) : undefined
+  return toOwnerProject(row, c.var.creator, mediaBase(c.env, c.req.url), claims)
+}
 
 /** Validates an image upload and streams it into R2 under `prefix/<projectId>/`. */
 async function putImage(c: Context<AppEnv>, prefix: 'covers' | 'images', projectId: string) {
@@ -157,6 +174,7 @@ export const projectRoutes = new Hono<AppEnv>()
           category: body.category ?? null,
           goalSats: body.goalSats ?? null,
           milestones: body.milestones ?? [],
+          rewards: body.rewards ?? [],
           endsAt: body.endsAt ?? null,
           createdAt: now,
           updatedAt: now,
@@ -182,6 +200,7 @@ export const projectRoutes = new Hono<AppEnv>()
     if (body.body !== undefined) patch.body = body.body
     if (body.category !== undefined) patch.category = body.category
     if (body.milestones !== undefined) patch.milestones = body.milestones
+    if (body.rewards !== undefined) patch.rewards = body.rewards
     if (body.endsAt !== undefined) {
       if (body.endsAt !== null && body.endsAt <= now) throw endsAtInPast()
       patch.endsAt = body.endsAt
@@ -219,7 +238,7 @@ export const projectRoutes = new Hono<AppEnv>()
 
     if (body.translation === null && current.enManual) {
       // Back to the automatic translation (ProjectTranslator is asked below).
-      Object.assign(patch, { enManual: false, titleEn: null, summaryEn: null, bodyEn: null, milestonesEn: null, enSourceHash: null })
+      Object.assign(patch, { enManual: false, titleEn: null, summaryEn: null, bodyEn: null, milestonesEn: null, rewardsEn: null, enSourceHash: null })
     } else if (body.translation) {
       const tr = body.translation
       const next = { ...current, ...patch }
@@ -234,6 +253,7 @@ export const projectRoutes = new Hono<AppEnv>()
         summaryEn: tr.summary,
         bodyEn: tr.body,
         milestonesEn: tr.milestones,
+        rewardsEn: Object.fromEntries(next.rewards.flatMap((r) => (tr.rewards[r.id] ? [[r.id, tr.rewards[r.id]!]] : []))),
         // What it was written against, so the editor can tell when the Thai moves on.
         enSourceHash: await translationSourceHash(sourceText(next)),
       })
@@ -241,7 +261,7 @@ export const projectRoutes = new Hono<AppEnv>()
 
     try {
       const [row] = await c.var.db.update(projects).set(patch).where(eq(projects.id, current.id)).returning()
-      const textChanged = ['title', 'summary', 'body', 'milestones', 'status', 'enManual'].some((k) => k in patch)
+      const textChanged = ['title', 'summary', 'body', 'milestones', 'rewards', 'status', 'enManual'].some((k) => k in patch)
       if (row!.status !== 'draft' && textChanged) requestTranslation(c.env, c.executionCtx, row!.id, true)
       return c.json((await respond(c, row!)) satisfies UpdateProjectResponse)
     } catch (e) {
@@ -281,7 +301,11 @@ export const projectRoutes = new Hono<AppEnv>()
     const apiKey = c.env.ANTHROPIC_API_KEY
     if (!apiKey) throw new ApiError(503, 'translation_unavailable', 'automatic translation is switched off')
     try {
-      return c.json((await translateToEnglish(apiKey, sourceText(current))) satisfies TranslateProjectResponse)
+      const out = await translateToEnglish(apiKey, sourceText(current))
+      return c.json({
+        ...out,
+        rewards: Object.fromEntries(current.rewards.map((r, i) => [r.id, out.rewards[i]!])),
+      } satisfies TranslateProjectResponse)
     } catch (e) {
       console.warn('translate (editor) failed', { project: current.id, error: e instanceof Error ? e.message : String(e) })
       throw new ApiError(503, 'translation_unavailable', 'automatic translation failed, try again')
@@ -306,7 +330,7 @@ export const projectRoutes = new Hono<AppEnv>()
     const { from, to, span, prevFrom } = statsWindow(range, tz, project, now)
 
     // One pass over the (project_id, status, paid_at) index: bucket -1 is the previous window.
-    const [buckets, anon] = await c.env.DB.batch<{ b: number; msat: number; n: number; anon: number }>([
+    const [buckets, totals] = await c.env.DB.batch<{ b: number; msat: number; n: number; anon: number; toSend: number }>([
       c.env.DB.prepare(
         `SELECT CASE WHEN paid_at < ?1 THEN -1 ELSE MIN(?4 - 1, CAST((paid_at - ?1) * ?4 / ?2 AS INTEGER)) END AS b,
                 SUM(amount_msat) AS msat, COUNT(*) AS n, SUM(supporter_name IS NULL) AS anon
@@ -315,8 +339,10 @@ export const projectRoutes = new Hono<AppEnv>()
           GROUP BY b`,
       ).bind(from, span, project.id, STATS_BUCKETS, prevFrom ?? from, to),
       c.env.DB.prepare(
-        `SELECT 0 AS b, 0 AS msat, 0 AS n, COUNT(*) AS anon FROM invoices
-          WHERE project_id = ?1 AND status = 'paid' AND supporter_name IS NULL`,
+        `SELECT 0 AS b, 0 AS msat, 0 AS n, COALESCE(SUM(supporter_name IS NULL), 0) AS anon,
+                COALESCE(SUM(reward_id IS NOT NULL AND reward_sent_at IS NULL), 0) AS toSend
+           FROM invoices
+          WHERE project_id = ?1 AND status = 'paid'`,
       ).bind(project.id),
     ])
 
@@ -355,26 +381,39 @@ export const projectRoutes = new Hono<AppEnv>()
       allTime: {
         raisedSats: msatToSats(project.raisedMsat),
         backers: project.supporterCount,
-        anonymous: anon!.results[0]?.anon ?? 0,
+        anonymous: totals!.results[0]?.anon ?? 0,
         goalSats: project.goalSats,
+        rewardsToSend: totals!.results[0]?.toSend ?? 0,
       },
     } satisfies ProjectStatsResponse)
   })
 
   .get('/:id/supporters', async (c) => {
     const project = await ownProject(c)
-    const filter = c.req.query('filter') === 'message' ? 'message' : ('all' satisfies SupporterFilter)
-    const query = { q: c.req.query('q'), filter } as const
+    const raw = c.req.query('filter')
+    const filter: SupporterFilter = raw === 'message' || raw === 'reward' ? raw : 'all'
+    const query = { q: c.req.query('q'), filter }
 
     if (c.req.query('format') === 'csv') {
       const rows = await supporterRows(c.var.db, project.id, query, undefined, LIMITS.supportersCsv.max)
-      const lines = ['paid_at,name,amount_sats,comment']
+      const lines = ['paid_at,name,amount_sats,comment,reward,contact,reward_sent_at']
       for (const r of rows) {
         lines.push(
-          [new Date(r.paidAt ?? 0).toISOString(), r.supporterName, msatToSats(r.amountMsat), r.comment].map(csvCell).join(','),
+          [
+            new Date(r.paidAt ?? 0).toISOString(),
+            r.supporterName,
+            msatToSats(r.amountMsat),
+            r.comment,
+            r.rewardTitle,
+            r.contact,
+            r.rewardSentAt === null ? null : new Date(r.rewardSentAt).toISOString(),
+          ]
+            .map(csvCell)
+            .join(','),
         )
       }
-      return c.body(lines.join('\r\n') + '\r\n', 200, {
+      // The BOM makes Excel read the file as UTF-8 (Thai names and comments), not the local code page.
+      return c.body('\uFEFF' + lines.join('\r\n') + '\r\n', 200, {
         'content-type': 'text/csv; charset=utf-8',
         'content-disposition': `attachment; filename="${project.slug}-supporters.csv"`,
         'cache-control': 'no-store',
@@ -383,6 +422,33 @@ export const projectRoutes = new Hono<AppEnv>()
 
     c.header('cache-control', 'no-store')
     return c.json(
-      (await supporterPage(c.var.db, project.id, query, c.req.query('cursor'), pageLimit(c.req.query('limit')))) satisfies ListSupportersResponse,
+      (await supporterPage(
+        c.var.db,
+        project.id,
+        query,
+        c.req.query('cursor'),
+        pageLimit(c.req.query('limit')),
+        toOwnerSupporter,
+      )) satisfies ListOwnerSupportersResponse,
     )
+  })
+
+  .put('/:id/supporters/:invoiceId/reward', writeLimit, json(v.object({ sent: v.boolean() })), async (c) => {
+    const project = await ownProject(c)
+    const { sent } = c.req.valid('json')
+    const [row] = await c.var.db
+      .update(invoices)
+      // Marking it sent again keeps the first date.
+      .set({ rewardSentAt: sent ? sql`COALESCE(${invoices.rewardSentAt}, ${Date.now()})` : null })
+      .where(
+        and(
+          eq(invoices.id, c.req.param('invoiceId')),
+          eq(invoices.projectId, project.id),
+          eq(invoices.status, 'paid'),
+          isNotNull(invoices.rewardId),
+        ),
+      )
+      .returning()
+    if (!row) throw notFound('supporter')
+    return c.json(toOwnerSupporter(row) satisfies SetRewardSentResponse)
   })
