@@ -1,10 +1,11 @@
 import { DurableObject } from 'cloudflare:workers'
-import type { WsInvoiceMessage, WsPaymentMessage, WsServerMessage } from '@nampu/types'
+import type { WsInvoiceMessage, WsPaymentMessage, WsRewardsMessage, WsServerMessage } from '@nampu/types'
 import { WS_PING, WS_PONG } from '@nampu/types'
 import { and, eq, exists, sql } from 'drizzle-orm'
 import { getDb } from '../context'
 import { invoices, projects } from '../db/schema'
 import { verifyPayment } from '../lightning/lnurl'
+import { rewardClaims, toPublicRewards } from '../lib/rewards'
 import { hexToBytes, msatToSats, sha256Hex } from '../lib/util'
 import { toSupporter } from '../serialize'
 
@@ -97,6 +98,11 @@ export class ProjectRoom extends DurableObject<Env> {
     return { ok: true }
   }
 
+  /** Called once an invoice with a reward is stored; trackInvoice runs before the insert. */
+  async rewardsChanged(projectId: string): Promise<void> {
+    await this.broadcastRewards(projectId)
+  }
+
   // ─── WebSocket ──────────────────────────────────────────────────────────────
 
   override async fetch(request: Request): Promise<Response> {
@@ -135,6 +141,18 @@ export class ProjectRoom extends DurableObject<Env> {
     } catch {
       // already closed
     }
+  }
+
+  private async broadcastRewards(projectId: string): Promise<void> {
+    if (!this.ctx.getWebSockets().length) return
+    const db = getDb(this.env.DB)
+    const [project, claims] = await Promise.all([
+      db.query.projects.findFirst({ columns: { rewards: true }, where: eq(projects.id, projectId) }),
+      rewardClaims(db, [projectId]),
+    ])
+    if (!project) return
+    const rewards = toPublicRewards(project.rewards, claims.get(projectId)).map(({ id, claimed, backers }) => ({ id, claimed, backers }))
+    this.send('all', { type: 'rewards', rewards } satisfies WsRewardsMessage)
   }
 
   private send(tag: string, msg: WsServerMessage): void {
@@ -227,16 +245,19 @@ export class ProjectRoom extends DurableObject<Env> {
       stats: { raisedSats: msatToSats(stats.raisedMsat), supporterCount: stats.supporterCount },
     } satisfies WsPaymentMessage)
     this.send(`inv:${row.id}`, { type: 'invoice', invoiceId: row.id, status: 'paid' } satisfies WsInvoiceMessage)
+    if (inv.rewardId) await this.broadcastRewards(row.project_id)
   }
 
   private async expire(row: PendingRow): Promise<void> {
     const db = getDb(this.env.DB)
-    await db
+    const [expired] = await db
       .update(invoices)
       .set({ status: 'expired' })
       .where(and(eq(invoices.id, row.id), eq(invoices.status, 'pending')))
+      .returning({ rewardId: invoices.rewardId })
     this.sql.exec('DELETE FROM pending WHERE id = ?', row.id)
     this.send(`inv:${row.id}`, { type: 'invoice', invoiceId: row.id, status: 'expired' } satisfies WsInvoiceMessage)
+    if (expired?.rewardId) await this.broadcastRewards(row.project_id)
   }
 
   private async scheduleNext(): Promise<void> {

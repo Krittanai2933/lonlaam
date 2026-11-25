@@ -40,6 +40,15 @@ test('rewards: the creator adds one, a supporter picks it and pays, the creator 
   const card = page.getByRole('button', { name: /โปสการ์ดจากดอย/ })
   await expect(card).toContainText('5,000 sats ขึ้นไป')
   await expect(card).toContainText('ผู้สนับสนุน 0 คน · เหลือ 2')
+  // Another viewer, already on the page, sees the counts change without reloading.
+  const observer = await browser.newPage()
+  const hello = observer
+    .waitForEvent('websocket', (ws) => ws.url().includes(`/api/p/${p.slug}/ws`))
+    .then((ws) => ws.waitForEvent('framereceived', (f) => String(f.payload).includes('"hello"')))
+  await observer.goto(`/p/${p.slug}`)
+  await hello
+  const observed = observer.getByRole('button', { name: /โปสการ์ดจากดอย/ })
+  await expect(observed).toContainText('ผู้สนับสนุน 0 คน · เหลือ 2')
   await card.click()
   const modal = page.getByRole('dialog')
   await expect(modal.getByRole('radio', { name: /โปสการ์ดจากดอย/ })).toBeChecked()
@@ -53,8 +62,11 @@ test('rewards: the creator adds one, a supporter picks it and pays, the creator 
   await modal.getByLabel('ชื่อที่จะแสดง (ไม่บังคับ)').fill('แก้ว')
   await create.click()
   await expect(modal.getByRole('img', { name: 'Lightning invoice QR' })).toBeVisible()
+  await expect(observed).toContainText('ผู้สนับสนุน 0 คน · เหลือ 1')
   await wallet.payLast()
   await expect(modal.getByText('ขอบคุณ!')).toBeVisible({ timeout: 15_000 })
+  await expect(observed).toContainText('ผู้สนับสนุน 1 คน · เหลือ 1')
+  await observer.close()
   await modal.getByRole('button', { name: 'กลับไปที่โปรเจกต์' }).click()
 
   // The activity feed shows the reward they chose (live, from the WebSocket broadcast).

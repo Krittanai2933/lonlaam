@@ -120,6 +120,7 @@ export const publicRoutes = new Hono<AppEnv>()
       ? await nip98Pubkey(nostrProof, `${publicOrigin(c.env, c.req.url)}/api/p/${project.slug}/invoices`, 'POST')
       : null
     const row = await createProjectInvoice(c.env, c.var.db, project.id, creator.lightningAddress, { ...input, supporterPubkey, reward })
+    if (reward) c.executionCtx.waitUntil(roomFor(c.env, project.id).rewardsChanged(project.id))
     return c.json(toInvoice(row) satisfies CreateInvoiceResponse, 201)
   })
 

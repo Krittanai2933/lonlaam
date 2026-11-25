@@ -1,4 +1,4 @@
-import type { GetProjectResponse, GetPublicProjectResponse, ListSupportersResponse, ProjectStats, PublicProject, Supporter } from '@nampu/types'
+import type { GetProjectResponse, GetPublicProjectResponse, ListSupportersResponse, ProjectStats, PublicProject, Supporter, WsRewardsMessage } from '@nampu/types'
 import { PUBLIC_PAGE } from '@nampu/types'
 import { Avatar, Brand, Button, cx, Icon, Plate, Progress, Tag, Tabs } from '@nampu/ui'
 import { type InfiniteData, type QueryClient, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -47,6 +47,7 @@ export default function ProjectPage() {
   // cost every open viewer two requests per payment.
   useProjectSocket(project.data && !previewId ? slug : null, (m) => {
     if (m.type === 'payment') applyPayment(qc, slug, m.supporter, m.stats)
+    if (m.type === 'rewards') applyRewards(qc, slug, m.rewards)
   })
 
   if (project.isPending) return <FullPageSpinner />
@@ -161,6 +162,13 @@ function applyPayment(qc: QueryClient, slug: string, s: Supporter, stats: Projec
     return d && first && { ...d, pages: [withSupporter(first, s), ...d.pages.slice(1)] }
   })
   qc.setQueryData<Supporter[]>(['leaderboard', slug], (l) => l && withLeader(l, s))
+}
+
+function applyRewards(qc: QueryClient, slug: string, counts: WsRewardsMessage['rewards']) {
+  const byId = new Map(counts.map((c) => [c.id, c]))
+  qc.setQueryData<GetPublicProjectResponse>(['public', slug], (p) =>
+    p && { ...p, rewards: p.rewards.map((r) => ({ ...r, ...byId.get(r.id) })) },
+  )
 }
 
 const withSupporter = (page: ListSupportersResponse, s: Supporter): ListSupportersResponse =>

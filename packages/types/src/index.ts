@@ -783,7 +783,16 @@ export interface WsInvoiceMessage {
   status: Exclude<InvoiceStatus, 'pending'>
 }
 
-export type WsServerMessage = WsHelloMessage | WsPaymentMessage | WsInvoiceMessage
+/**
+ * Broadcast to everyone watching the project when a reward's counts change (an invoice for it
+ * was created, paid, or expired). Lists every current reward, so clients replace, never add.
+ */
+export interface WsRewardsMessage {
+  type: 'rewards'
+  rewards: Pick<PublicReward, 'id' | 'claimed' | 'backers'>[]
+}
+
+export type WsServerMessage = WsHelloMessage | WsPaymentMessage | WsInvoiceMessage | WsRewardsMessage
 
 export const WS_PING = 'ping'
 export const WS_PONG = 'pong'
