@@ -106,8 +106,8 @@ function DesktopModal({ project, c, onClose }: { project: PublicProject; c: Cont
   const { t } = useI18n()
   const editing = c.state === 'amount' || c.state === 'loading'
   return (
-    <Dialog open bare onClose={onClose} className="grid w-[780px] max-w-full grid-cols-2">
-      <div className="flex flex-col gap-3.5 border-r border-divider p-7">
+    <Dialog open bare onClose={onClose} className="max-h-full w-[780px] max-w-full flex-row overflow-hidden">
+      <div className="flex w-1/2 flex-col gap-3.5 overflow-y-auto border-r border-divider p-7">
         <div className="text-xs text-neutral-600">{t.supporting}</div>
         <div className="dialog-title -mt-2.5 text-[24px]">{project.title}</div>
         {editing ? (
@@ -142,7 +142,7 @@ function DesktopModal({ project, c, onClose }: { project: PublicProject; c: Cont
         )}
         <p className="m-0 mt-auto text-xs text-neutral-600">{t.nonCustodial}</p>
       </div>
-      <div className="relative flex flex-col items-center gap-3 p-7">
+      <div className="relative flex w-1/2 flex-col items-center gap-3 p-7">
         <Button variant="ghost" plain iconOnly icon="x" aria-label={t.close} onClick={onClose} className="absolute top-2.5 right-2.5" />
         {c.state === 'amount' && (
           <>
