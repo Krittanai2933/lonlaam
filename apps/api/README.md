@@ -12,7 +12,7 @@ npx wrangler r2 bucket create nampu-media
 pnpm --filter @nampu/api db:migrate:local
 pnpm --filter @nampu/api dev            # wrangler dev --env dev (allows http:// LNURL)
 pnpm --filter @nampu/api smoke          # e2e: mock wallet + wrangler dev
-pnpm --filter @nampu/api db:migrate:remote && pnpm --filter @nampu/api deploy
+pnpm --filter @nampu/api db:migrate:remote && pnpm --filter @nampu/api run deploy
 ```
 
 After changing `src/db/schema.ts`, run `pnpm db:generate` to produce a new SQL file in `migrations/`.

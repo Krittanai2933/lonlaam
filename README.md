@@ -37,7 +37,7 @@ pnpm typecheck && pnpm test
 pnpm --filter @nampu/api smoke      # API end-to-end against wrangler dev (stop dev servers first)
 pnpm e2e                            # browser e2e (Playwright), see below
 pnpm build                          # web build → worker dry-run bundle
-pnpm --filter @nampu/api deploy
+pnpm --filter @nampu/api run deploy
 ```
 
 ### Browser e2e (`e2e/`)
