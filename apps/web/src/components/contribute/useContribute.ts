@@ -56,7 +56,11 @@ export function useContribute(project: PublicProject) {
         ...(message.trim() && { comment: message.trim() }),
         ...(reward && { rewardId: reward.id, contact: contact.trim() }),
       })
-      if (id !== reqId.current) return
+      if (id !== reqId.current) {
+        // Left while it was being made: nobody will see this invoice, so it must not hold the reward.
+        if (reward) releasing.current = api.releaseInvoice(inv.id).catch(() => {})
+        return
+      }
       // The room broadcasts new counts too; this covers a socket that is down.
       if (reward) void qc.invalidateQueries({ queryKey: ['public', project.slug] })
       setInvoice(inv)
