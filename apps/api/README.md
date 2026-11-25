@@ -82,7 +82,9 @@ oversell). The invoice keeps the reward's title as it was, so editing or removin
 supporter is owed. `contact` is owner-only: it never appears in public responses or the WebSocket broadcast,
 which carry just `{ id, title }`. Paid invoices with a reward and no `reward_sent_at` are counted as
 `allTime.rewardsToSend` in the stats. Reward text is translated with the rest of the project
-(`projects.rewards_en`, by reward id); the creator's own English version can cover it too.
+(`projects.rewards_en`, by reward id); the creator's own English version can cover it too. When an invoice
+with a reward is created, paid, or expires, the project's room broadcasts a `rewards` WebSocket message with
+every reward's current `claimed` and `backers`, so open pages update their counts without reloading.
 
 ## Monthly sprinkle
 
