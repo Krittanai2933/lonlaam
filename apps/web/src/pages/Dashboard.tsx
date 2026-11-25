@@ -137,39 +137,35 @@ function RewardCell({ projectId, s }: { projectId: string; s: OwnerSupporter }) 
   if (!s.reward) return <Tag tone="plain">—</Tag>
   const sent = s.reward.sentAt !== null
   return (
-    <div className="flex items-start gap-2.5">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5 text-sm">
-          <Icon name="gift" size={14} />
-          <span className="truncate">{s.reward.title}</span>
-        </div>
-        <div className="text-xs break-all text-neutral-600 select-all">{s.reward.contact}</div>
-        {sent ? (
-          <div className="mt-1 flex items-center gap-1.5 text-xs">
-            <span className="flex items-center gap-1 text-success">
-              <Icon name="check" size={14} />
-              {t.rewardSent}
-            </span>
-            <span className="text-neutral-500">·</span>
-            <button
-              type="button"
-              className="cursor-pointer text-neutral-600 underline underline-offset-2 hover:text-fg disabled:opacity-50"
-              disabled={mark.isPending}
-              onClick={() => mark.mutate(false)}
-            >
-              {t.undo}
-            </button>
-          </div>
-        ) : (
-          <Tag tone="accent" className="mt-1">
-            {t.rewardPending}
-          </Tag>
-        )}
+    <div className="min-w-0">
+      <div className="flex items-center gap-1.5 text-sm">
+        <Icon name="gift" size={14} />
+        <span className="truncate">{s.reward.title}</span>
       </div>
-      {!sent && (
-        <Button variant="secondary" icon="check" className="h-8 flex-none text-[13px]" loading={mark.isPending} onClick={() => mark.mutate(true)}>
-          {t.markSent}
-        </Button>
+      <div className="text-xs break-all text-neutral-600 select-all">{s.reward.contact}</div>
+      {sent ? (
+        <div className="mt-1.5 flex items-center gap-1.5 text-xs">
+          <span className="flex items-center gap-1 text-success">
+            <Icon name="check" size={14} />
+            {t.rewardSent}
+          </span>
+          <span className="text-neutral-500">·</span>
+          <button
+            type="button"
+            className="cursor-pointer text-neutral-600 underline underline-offset-2 hover:text-fg disabled:opacity-50"
+            disabled={mark.isPending}
+            onClick={() => mark.mutate(false)}
+          >
+            {t.undo}
+          </button>
+        </div>
+      ) : (
+        <div className="mt-1.5 flex flex-wrap items-center gap-2.5">
+          <Tag tone="accent">{t.rewardPending}</Tag>
+          <Button variant="secondary" icon="check" className="h-8 text-[13px]" loading={mark.isPending} onClick={() => mark.mutate(true)}>
+            {t.markSent}
+          </Button>
+        </div>
       )}
     </div>
   )
