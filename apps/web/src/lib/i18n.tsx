@@ -87,6 +87,14 @@ const th = {
   inProgress: 'กำลังไป',
   addReward: 'เพิ่มรางวัล',
   rewardsOptional: 'รางวัลไม่บังคับ โปรเจกต์ที่มีรางวัลมักได้ผู้สนับสนุนมากกว่า',
+  rewardName: 'ชื่อรางวัล', // (added)
+  rewardMin: 'สนับสนุนขั้นต่ำ', // (added)
+  rewardLimit: 'จำนวนจำกัด', // (added)
+  noLimit: 'ไม่จำกัด', // (added)
+  rewardDesc: 'รายละเอียดรางวัล', // (added)
+  removeReward: 'ลบรางวัล', // (added)
+  rewardClaimed: 'มีคนเลือกแล้ว {n} คน', // (added)
+  rewardsInvalid: 'ตรวจรางวัลอีกครั้ง: ต้องมีชื่อและยอดขั้นต่ำ', // (added)
   lnOk: 'ตรวจสอบแล้ว รับ sats ได้',
   lnChecking: 'กำลังตรวจสอบ…', // (added)
   lnFormat: 'รูปแบบต้องเป็น name@domain.com',
@@ -138,6 +146,10 @@ const th = {
   supporter: 'ผู้สนับสนุน',
   message: 'ข้อความ',
   reward: 'รางวัล',
+  markSent: 'ส่งแล้ว', // (added)
+  allSent: 'ส่งครบแล้ว', // (added)
+  showRewards: 'ดูรายการ', // (added)
+  noRewardsChosen: 'ยังไม่มีใครเลือกรางวัล', // (added)
   when: 'เวลา',
   anonymous: 'ไม่ระบุชื่อ',
   ranges: { today: 'วันนี้', '7d': '7 วัน', '30d': '30 วัน', all: 'ทั้งหมด' },
@@ -296,6 +308,16 @@ const th = {
   namePh: 'ชื่อที่จะแสดง (ไม่บังคับ)', // (added)
   fromNostr: 'ใช้ชื่อจาก Nostr', // (added)
   msgPh: 'ข้อความถึงผู้สร้าง (ไม่บังคับ)',
+  rewardPick: 'เลือกรางวัล (ไม่บังคับ)', // (added)
+  noReward: 'ไม่รับรางวัล', // (added)
+  rewardFrom: '{sats} sats ขึ้นไป', // (added)
+  rewardLeft: 'เหลือ {n}', // (added)
+  rewardBackers: 'ผู้สนับสนุน {n} คน', // (added)
+  soldOut: 'หมดแล้ว', // (added)
+  contactPh: 'ผู้สร้างติดต่อคุณทางไหน: อีเมล, Nostr, LINE…', // (added)
+  contactNote: 'เห็นเฉพาะผู้สร้าง ใช้สำหรับส่งรางวัล', // (added)
+  rewardNeedsMore: 'รางวัลนี้ต้องสนับสนุนอย่างน้อย {sats} sats', // (added)
+  rewardUnavailable: 'รางวัลนี้หมดแล้วหรือถูกนำออก ลองเลือกรางวัลอื่น', // (added)
   createInvoice: 'สร้าง invoice',
   creating: 'กำลังสร้าง Lightning invoice…',
   waiting: 'รอการชำระเงิน',
@@ -408,6 +430,14 @@ const en: Dict = {
   inProgress: 'In progress',
   addReward: 'Add reward',
   rewardsOptional: 'Rewards are optional, but projects with rewards tend to attract more backers.',
+  rewardName: 'Reward name',
+  rewardMin: 'Minimum support',
+  rewardLimit: 'Limited to',
+  noLimit: 'No limit',
+  rewardDesc: 'What backers get',
+  removeReward: 'Remove reward',
+  rewardClaimed: 'Chosen by {n} so far',
+  rewardsInvalid: 'Check the rewards: each needs a name and a minimum amount.',
   lnOk: 'Verified, can receive sats',
   lnChecking: 'Checking…',
   lnFormat: 'Must look like name@domain.com',
@@ -458,6 +488,10 @@ const en: Dict = {
   supporter: 'Supporter',
   message: 'Message',
   reward: 'Reward',
+  markSent: 'Sent',
+  allSent: 'All sent',
+  showRewards: 'Show list',
+  noRewardsChosen: 'No one has chosen a reward yet',
   when: 'When',
   anonymous: 'Anonymous',
   ranges: { today: 'Today', '7d': '7d', '30d': '30d', all: 'All' },
@@ -609,6 +643,16 @@ const en: Dict = {
   namePh: 'Name to show (optional)',
   fromNostr: 'Use my Nostr name',
   msgPh: 'Message to the creator (optional)',
+  rewardPick: 'Choose a reward (optional)',
+  noReward: 'No reward',
+  rewardFrom: '{sats} sats or more',
+  rewardLeft: '{n} left',
+  rewardBackers: '{n} backers',
+  soldOut: 'Sold out',
+  contactPh: 'How should the creator reach you: email, Nostr, LINE…',
+  contactNote: 'Only the creator sees this, to send your reward.',
+  rewardNeedsMore: 'This reward needs at least {sats} sats',
+  rewardUnavailable: 'This reward is sold out or no longer offered. Try another one.',
   createInvoice: 'Create invoice',
   creating: 'Creating Lightning invoice…',
   waiting: 'Waiting for payment',

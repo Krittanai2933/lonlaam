@@ -9,7 +9,7 @@ import { ago, daysLeft, short } from '../../lib/format'
 import { useIsDesktop, useNow } from '../../lib/hooks'
 import { useI18n } from '../../lib/i18n'
 import { BasicsStep, GoalStep, PayoutStep, RewardsStep, slugValid, StoryStep, type StepProps } from './steps'
-import { cleanMilestones, useProjectForm, type FormState, type SaveState } from './useProjectForm'
+import { cleanMilestones, cleanRewards, useProjectForm, type FormState, type SaveState } from './useProjectForm'
 
 const STEPS = 5
 
@@ -54,6 +54,7 @@ function Editor({ project }: { project: Project | undefined }) {
         goalSats: form.goalSats,
         endsAt: form.endsAt,
         milestones: cleanMilestones(form.milestones),
+        rewards: cleanRewards(form.rewards),
       })
       qc.setQueryData(['project', p.id], p)
       void qc.invalidateQueries({ queryKey: ['myProjects'] })
@@ -126,7 +127,7 @@ function Editor({ project }: { project: Project | undefined }) {
     <BasicsStep key="b" {...stepProps} />,
     <StoryStep key="s" {...stepProps} />,
     <GoalStep key="g" {...stepProps} />,
-    <RewardsStep key="r" />,
+    <RewardsStep key="r" {...stepProps} />,
     <PayoutStep key="p" {...stepProps} doneFlags={done} />,
   ][step]
   const nextLabel = step === STEPS - 1 ? (isDraft ? t.publish : t.saveChanges) : t.next
@@ -273,7 +274,7 @@ function doneFlags(form: FormState, hasLn: boolean): boolean[] {
     !!form.title.trim() && slugValid(form.slug) && !!form.summary.trim(),
     form.body.trim().length > 0,
     !!form.goalSats,
-    true, // rewards are optional (and not available yet)
+    true, // rewards are optional
     hasLn,
   ]
 }

@@ -38,7 +38,8 @@ export default function ProjectPage() {
     queryFn: () => (previewId ? api.project(previewId).then(asPreview) : api.publicProject(slug)),
     retry: (n, e) => !(e instanceof ApiError && (e.status === 404 || e.status === 401)) && n < 2,
   })
-  const [contributing, setContributing] = useState(false)
+  /** Open contribute flow; `reward` = opened from that reward card. */
+  const [contributing, setContributing] = useState<{ reward: string | null } | null>(null)
   const { lang } = useI18n()
   const [showOriginal, setShowOriginal] = useState(false)
 
@@ -65,8 +66,8 @@ export default function ProjectPage() {
     )
   return (
     <TranslationCtx.Provider value={translation}>
-      <View project={p} onContribute={() => setContributing(true)} />
-      <ContributeFlow project={p} open={contributing} onClose={() => setContributing(false)} desktop={desktop} />
+      <View project={p} onContribute={(reward) => setContributing({ reward: reward ?? null })} />
+      <ContributeFlow project={p} open={!!contributing} rewardId={contributing?.reward} onClose={() => setContributing(null)} desktop={desktop} />
     </TranslationCtx.Provider>
   )
 }
@@ -193,6 +194,37 @@ function ContributeButton({ p, onClick, className }: { p: PublicProject; onClick
   )
 }
 
+function RewardList({ p, onPick, className }: { p: PublicProject; onPick: (rewardId: string) => void; className?: string }) {
+  const { t, f } = useI18n()
+  const preview = useContext(PreviewCtx) !== null
+  if (!p.rewards.length) return null
+  const open = isOpen(p) && !preview
+  return (
+    <div className={className}>
+      <h6 className="text-neutral-700">{t.rewards}</h6>
+      <div className="flex flex-col gap-2">
+        {p.rewards.map((r) => {
+          const left = r.limit === null ? null : Math.max(0, r.limit - r.claimed)
+          return (
+            <button
+              key={r.id}
+              type="button"
+              disabled={!open || left === 0}
+              onClick={() => onPick(r.id)}
+              className="flex cursor-pointer flex-col gap-1 rounded-md border border-divider p-3.5 text-left hover:border-accent disabled:cursor-default disabled:hover:border-divider"
+            >
+              <span className="tnum text-[13px] text-accent-700">{f(t.rewardFrom, { sats: fmt(r.minSats) })}</span>
+              <span className="text-[15px] font-medium">{r.title}</span>
+              {r.description && <span className="text-sm whitespace-pre-line text-neutral-700">{r.description}</span>}
+              {left !== null && <span className="tnum text-xs text-neutral-600">{left === 0 ? t.soldOut : f(t.rewardLeft, { n: fmt(left) })}</span>}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function milestoneTicks(p: PublicProject) {
   if (!p.goalSats) return undefined
   return p.milestones.filter((m) => m.sats < p.goalSats!).map((m) => ({ at: m.sats / p.goalSats!, reached: p.raisedSats >= m.sats }))
@@ -315,7 +347,7 @@ async function shareNative(p: PublicProject) {
 
 // ─── 2a · Mobile ──────────────────────────────────────────────────────────────
 
-function MobileProject({ project: p, onContribute }: { project: PublicProject; onContribute: () => void }) {
+function MobileProject({ project: p, onContribute }: { project: PublicProject; onContribute: (rewardId?: string) => void }) {
   const { t } = useI18n()
   const navigate = useNavigate()
   const [tab, setTab] = useState<Tab>('story')
@@ -348,6 +380,7 @@ function MobileProject({ project: p, onContribute }: { project: PublicProject; o
           <Stat value={fmt(p.supporterCount)} label={t.backers} bordered />
           <Stat value={p.endsAt ? String(daysLeft(p.endsAt)) : '—'} label={t.daysLeft} bordered />
         </div>
+        <RewardList p={p} onPick={onContribute} className="mt-4" />
         <Tabs<Tab>
           className="mt-[18px]"
           aria-label={p.title}
@@ -374,7 +407,7 @@ function MobileProject({ project: p, onContribute }: { project: PublicProject; o
       </div>
       <div className="fixed inset-x-0 bottom-0 z-20 flex gap-2.5 border-t border-divider bg-bg px-5 pt-3 pb-[26px]">
         <Button variant="secondary" iconOnly icon="share" className="size-12" aria-label={t.share} onClick={() => void shareNative(p)} />
-        <ContributeButton p={p} onClick={onContribute} className="h-12 flex-1 text-base" />
+        <ContributeButton p={p} onClick={() => onContribute()} className="h-12 flex-1 text-base" />
       </div>
     </div>
   )
@@ -391,7 +424,7 @@ function Stat({ value, label, bordered }: { value: string; label: string; border
 
 // ─── 2c · Desktop ─────────────────────────────────────────────────────────────
 
-function DesktopProject({ project: p, onContribute }: { project: PublicProject; onContribute: () => void }) {
+function DesktopProject({ project: p, onContribute }: { project: PublicProject; onContribute: (rewardId?: string) => void }) {
   const { t } = useI18n()
   const [tab, setTab] = useState<Tab>('story')
   const pct = pctOf(p)
@@ -427,8 +460,9 @@ function DesktopProject({ project: p, onContribute }: { project: PublicProject; 
               <div className="text-xs text-neutral-600">{t.daysLeft}</div>
             </div>
           </div>
-          <ContributeButton p={p} onClick={onContribute} className="h-12 w-full text-base" />
+          <ContributeButton p={p} onClick={() => onContribute()} className="h-12 w-full text-base" />
           <ShareButtons project={p} className="mt-2.5" />
+          <RewardList p={p} onPick={onContribute} className="mt-5" />
           <div className="mt-5 flex items-center gap-1.5 text-xs text-neutral-600">
             <Icon name="eyeOff" />
             {t.anonNote}
