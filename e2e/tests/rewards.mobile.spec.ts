@@ -20,12 +20,14 @@ test('rewards on mobile: editor fits, the card shows on the page, the rewards ta
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 
   await page.goto(`/p/${p.slug}`)
-  await expect(page.getByRole('button', { name: /สติกเกอร์/ })).toContainText('ผู้สนับสนุน 1 คน')
+  await expect(page.getByRole('article', { name: /สติกเกอร์/ })).toContainText('ผู้สนับสนุน 1 คน')
 
   await page.goto(`/dashboard/${p.id}`)
   await page.getByRole('button', { name: 'รางวัล', exact: true }).click()
   await expect(page.getByText('LINE @fon')).toBeVisible()
-  await page.getByRole('button', { name: 'ส่งแล้ว' }).click()
-  await expect(page.getByRole('button', { name: 'ส่งแล้ว' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByText('รอส่ง')).toBeVisible()
+  await page.getByRole('button', { name: 'ทำเครื่องหมายว่าส่งแล้ว' }).click()
+  await expect(page.getByRole('button', { name: 'เลิกทำ' })).toBeVisible()
+  await expect(page.getByText('รอส่ง')).toHaveCount(0)
   await expect.poll(async () => (await call<{ allTime: { rewardsToSend: number } }>('GET', `/api/projects/${p.id}/stats?range=all`, { token: c.token })).allTime.rewardsToSend).toBe(0)
 })

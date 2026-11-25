@@ -16,6 +16,17 @@ test('rewards: the creator adds one, a supporter picks it and pays, the creator 
   await page.getByLabel('สนับสนุนขั้นต่ำ').fill('5000')
   await page.getByLabel('จำนวนจำกัด').fill('2')
   await page.getByLabel('รายละเอียดรางวัล').fill('เขียนด้วยมือ ส่งทางไปรษณีย์')
+  // A second row with a name but no minimum is held back, and the editor says so.
+  await page.getByRole('button', { name: 'เพิ่มรางวัล' }).click()
+  const half = page.getByRole('region', { name: 'สติกเกอร์' })
+  await page.getByLabel('ชื่อรางวัล', { exact: true }).nth(1).fill('สติกเกอร์')
+  await page.getByLabel('จำนวนจำกัด').nth(1).focus()
+  await expect(half.getByText('ใส่ยอดขั้นต่ำ', { exact: false })).toHaveCount(0) // still typing in this row
+  await page.getByLabel('ชื่อรางวัล', { exact: true }).first().focus()
+  await expect(half.getByRole('alert')).toHaveText(/ใส่ยอดขั้นต่ำ/)
+  await expect(page.getByText('มีรางวัลที่กรอกไม่ครบ ยังไม่ถูกบันทึก')).toBeVisible()
+  await half.getByRole('button', { name: 'ลบรางวัล' }).click()
+  await expect(page.getByText('มีรางวัลที่กรอกไม่ครบ ยังไม่ถูกบันทึก')).toHaveCount(0)
   const saved = () => call<Project>('GET', `/api/projects/${p.id}`, { token: c.token })
   await expect.poll(async () => (await saved()).rewards).toMatchObject([
     { title: 'โปสการ์ดจากดอย', minSats: 5000, limit: 2, description: 'เขียนด้วยมือ ส่งทางไปรษณีย์', claimed: 0, backers: 0 },
@@ -26,6 +37,7 @@ test('rewards: the creator adds one, a supporter picks it and pays, the creator 
   await page.goto(`/projects/${p.id}/edit?step=1`)
   await page.getByRole('button', { name: 'เขียนภาษาอังกฤษเอง' }).click()
   await page.getByLabel('ชื่อโปรเจกต์ (English)').fill('Mountain library')
+  await expect(page.getByText('5,000 sats', { exact: true })).toBeVisible() // the reward's Thai name and minimum label its English inputs
   await page.getByLabel('ชื่อรางวัล โปสการ์ดจากดอย (English)').fill('Postcard from the mountain')
   await expect.poll(async () => (await saved()).translation?.rewards).toEqual([
     { id: rewardId, title: 'Postcard from the mountain', description: 'เขียนด้วยมือ ส่งทางไปรษณีย์' },
@@ -37,7 +49,7 @@ test('rewards: the creator adds one, a supporter picks it and pays, the creator 
 
   // Supporter: the reward card opens the contribute modal with it chosen.
   await page.goto(`/p/${p.slug}`)
-  const card = page.getByRole('button', { name: /โปสการ์ดจากดอย/ })
+  const card = page.getByRole('article', { name: /โปสการ์ดจากดอย/ })
   await expect(card).toContainText('5,000 sats ขึ้นไป')
   await expect(card).toContainText('ผู้สนับสนุน 0 คน · เหลือ 2')
   // Another viewer, already on the page, sees the counts change without reloading.
@@ -47,9 +59,9 @@ test('rewards: the creator adds one, a supporter picks it and pays, the creator 
     .then((ws) => ws.waitForEvent('framereceived', (f) => String(f.payload).includes('"hello"')))
   await observer.goto(`/p/${p.slug}`)
   await hello
-  const observed = observer.getByRole('button', { name: /โปสการ์ดจากดอย/ })
+  const observed = observer.getByRole('article', { name: /โปสการ์ดจากดอย/ })
   await expect(observed).toContainText('ผู้สนับสนุน 0 คน · เหลือ 2')
-  await card.click()
+  await card.getByRole('button').click()
   const modal = page.getByRole('dialog')
   await expect(modal.getByRole('radio', { name: /โปสการ์ดจากดอย/ })).toBeChecked()
   await modal.getByRole('button', { name: /^1,000/ }).click()
@@ -84,7 +96,7 @@ test('rewards: the creator adds one, a supporter picks it and pays, the creator 
   const reader = await browser.newPage()
   await reader.addInitScript(() => localStorage.setItem('nampu.lang', 'en'))
   await reader.goto(`/p/${p.slug}`)
-  await expect(reader.getByRole('button', { name: /Postcard from the mountain/ })).toContainText('1 backers · 1 left')
+  await expect(reader.getByRole('article', { name: /Postcard from the mountain/ })).toContainText('1 backer · 1 left')
   await expect(reader.locator('.tag', { hasText: 'Postcard from the mountain' }).first()).toBeVisible()
   await reader.close()
 
@@ -96,10 +108,16 @@ test('rewards: the creator adds one, a supporter picks it and pays, the creator 
   await expect(page.getByRole('radio', { name: 'มีรางวัล' })).toBeChecked()
   const row = page.getByRole('row', { name: /แก้ว/ })
   await expect(row).toContainText('kaew@example.com')
-  const sent = row.getByRole('button', { name: 'ส่งแล้ว' })
-  await expect(sent).toHaveAttribute('aria-pressed', 'false')
-  await sent.click()
-  await expect(sent).toHaveAttribute('aria-pressed', 'true')
+  await expect(row).toContainText('รอส่ง')
+  await row.getByRole('button', { name: 'ทำเครื่องหมายว่าส่งแล้ว' }).click()
+  await expect(kpi).toContainText('ส่งครบแล้ว')
+  await expect(row).not.toContainText('รอส่ง')
+  // Undo puts it back to send; marking it again settles it.
+  await row.getByRole('button', { name: 'เลิกทำ' }).click()
+  await expect(row).toContainText('รอส่ง')
+  await expect(kpi).toContainText('ดูรายการ')
+  await row.getByRole('button', { name: 'ทำเครื่องหมายว่าส่งแล้ว' }).click()
+  await expect(row.getByRole('button', { name: 'เลิกทำ' })).toBeVisible()
   await expect(kpi).toContainText('ส่งครบแล้ว')
   const stats = await call<ProjectStatsResponse>('GET', `/api/projects/${p.id}/stats?range=all`, { token: c.token })
   expect(stats.allTime.rewardsToSend).toBe(0)
@@ -110,13 +128,10 @@ test('rewards: the creator adds one, a supporter picks it and pays, the creator 
   await call('POST', `/api/p/${p.slug}/invoices`, { body: { amountSats: 5000, rewardId, contact: 'npub1someone' } })
   await expect(call('POST', `/api/p/${p.slug}/invoices`, { body: { amountSats: 5000, rewardId, contact: 'x' } })).rejects.toThrow(/409.*reward_unavailable/)
   await expect(call('POST', `/api/p/${p.slug}/invoices`, { body: { amountSats: 4999, rewardId: 'nope', contact: 'x' } })).rejects.toThrow(/409/)
-  // A fresh page: this one may still hold the public response (cacheable for 10s).
-  const later = await browser.newPage()
-  await later.goto(`/p/${p.slug}`)
-  const soldOut = later.getByRole('button', { name: /โปสการ์ดจากดอย/ })
-  await expect(soldOut).toBeDisabled()
+  await page.goto(`/p/${p.slug}`)
+  const soldOut = page.getByRole('article', { name: /โปสการ์ดจากดอย/ })
+  await expect(soldOut.getByRole('button')).toBeDisabled()
   await expect(soldOut).toContainText('หมดแล้ว')
-  await later.close()
 })
 
 test('rewards: a reward needs its minimum and a contact', async () => {
@@ -135,4 +150,90 @@ test('rewards: a reward needs its minimum and a contact', async () => {
       body: { rewards: [{ id: 'a', title: 'A', description: '', minSats: 1, limit: null }, { id: 'a', title: 'B', description: '', minSats: 2, limit: null }] },
     }),
   ).rejects.toThrow(/422/)
+})
+
+test('rewards: leaving an invoice frees its reward, and the next contribution starts fresh', async ({ page, browser }) => {
+  const c = await seedCreator()
+  const p = await seedProject(c.token)
+  await call('PATCH', `/api/projects/${p.id}`, {
+    token: c.token,
+    body: { rewards: [{ id: 'mug', title: 'แก้วกาแฟ', description: '', minSats: 2000, limit: 1 }] },
+  })
+  const observer = await browser.newPage()
+  const hello = observer
+    .waitForEvent('websocket', (ws) => ws.url().includes(`/api/p/${p.slug}/ws`))
+    .then((ws) => ws.waitForEvent('framereceived', (f) => String(f.payload).includes('"hello"')))
+  await observer.goto(`/p/${p.slug}`)
+  await hello
+  const observed = observer.getByRole('article', { name: /แก้วกาแฟ/ })
+  await expect(observed).toContainText('เหลือ 1')
+
+  await page.goto(`/p/${p.slug}`)
+  const own = page.locator('article', { hasText: 'แก้วกาแฟ' })
+  await page.getByRole('article', { name: /แก้วกาแฟ/ }).getByRole('button').click()
+  const modal = page.getByRole('dialog')
+  const contact = modal.getByLabel('ผู้สร้างติดต่อคุณทางไหน: อีเมล, Nostr, LINE…')
+  await contact.fill('mug@example.com')
+  const create = modal.getByRole('button', { name: 'สร้าง invoice' })
+  const qr = modal.getByRole('img', { name: 'Lightning invoice QR' })
+  await create.click()
+  await expect(qr).toBeVisible()
+  // The payer's own page shows the claim too (its refetch must not come from the browser cache).
+  await expect(own).toContainText('หมดแล้ว')
+  await expect(observed).toContainText('หมดแล้ว')
+  await page.waitForTimeout(1500)
+  await expect(own).toContainText('หมดแล้ว')
+
+  // Going back to change the amount gives the reward back, so the new invoice can take it again.
+  await modal.getByRole('button', { name: 'แก้ไข' }).click()
+  await expect(observed).toContainText('เหลือ 1')
+  await modal.getByRole('button', { name: /^5,000/ }).click()
+  await create.click()
+  await expect(qr).toBeVisible()
+  await expect(observed).toContainText('หมดแล้ว')
+
+  // Cancelling frees it at once, and the next open has no reward chosen.
+  await modal.getByRole('button', { name: 'ปิด' }).first().click()
+  await page.getByRole('button', { name: 'ยกเลิก invoice' }).click()
+  await expect(observed).toContainText('เหลือ 1')
+  await expect(own).toContainText('เหลือ 1')
+  await page.getByRole('button', { name: 'สนับสนุน', exact: true }).click()
+  await expect(modal.getByRole('radio', { name: 'ไม่รับรางวัล' })).toBeChecked()
+  await modal.getByRole('radio', { name: /แก้วกาแฟ/ }).check()
+  await expect(contact).toHaveValue('')
+
+  // After paying, the next open starts fresh as well.
+  await contact.fill('mug@example.com')
+  await create.click()
+  await expect(qr).toBeVisible()
+  await wallet.payLast()
+  await expect(modal.getByText('ขอบคุณ!')).toBeVisible({ timeout: 15_000 })
+  await modal.getByRole('button', { name: 'กลับไปที่โปรเจกต์' }).click()
+  await expect(observed).toContainText('หมดแล้ว')
+  await page.getByRole('button', { name: 'สนับสนุน', exact: true }).click()
+  await expect(modal.getByRole('radio', { name: 'ไม่รับรางวัล' })).toBeChecked()
+  await expect(modal.getByRole('radio', { name: /แก้วกาแฟ/ })).toBeDisabled()
+  await observer.close()
+})
+
+test('rewards: releasing an invoice is idempotent and only touches a pending one', async () => {
+  const c = await seedCreator()
+  const p = await seedProject(c.token)
+  await call('PATCH', `/api/projects/${p.id}`, { token: c.token, body: { rewards: [{ id: 'pin', title: 'Pin', description: '', minSats: 1000, limit: 1 }] } })
+  const inv = await call<{ id: string }>('POST', `/api/p/${p.slug}/invoices`, { body: { amountSats: 1000, rewardId: 'pin', contact: 'x' } })
+  await expect(call('POST', `/api/p/${p.slug}/invoices`, { body: { amountSats: 1000, rewardId: 'pin', contact: 'y' } })).rejects.toThrow(/409/)
+  await call('POST', `/api/invoices/${inv.id}/release`)
+  await call('POST', `/api/invoices/${inv.id}/release`)
+  await expect(call('POST', '/api/invoices/nope/release')).rejects.toThrow(/404/)
+  // Paid after release: it counts as support, without the reward.
+  await wallet.payLast()
+  await wallet.waitForRaised(p.slug, 1000)
+  const pub = await call<PublicProject>('GET', `/api/p/${p.slug}`)
+  expect(pub.rewards[0]).toMatchObject({ claimed: 0, backers: 0 })
+  const paid = await call<{ id: string }>('POST', `/api/p/${p.slug}/invoices`, { body: { amountSats: 1000, rewardId: 'pin', contact: 'y' } })
+  await wallet.payLast()
+  await wallet.waitForRaised(p.slug, 2000)
+  await call('POST', `/api/invoices/${paid.id}/release`)
+  const after = await call<ListOwnerSupportersResponse>('GET', `/api/projects/${p.id}/supporters?filter=reward`, { token: c.token })
+  expect(after.supporters.map((s) => s.reward?.contact)).toEqual(['y'])
 })
