@@ -189,7 +189,8 @@ function AmountForm({ c, desktop }: { c: Contribute; desktop?: boolean }) {
   return (
     <div className="flex flex-col gap-3.5">
       {/* Sticky on desktop: picking a reward further down can raise the amount, and that must stay in view. */}
-      <div className={cx('flex items-baseline justify-center gap-2 border-b border-accent pt-2.5 pb-1', desktop && 'sticky top-0 z-10 justify-start bg-surface')}>
+      {/* -top-7 cancels the column's padding, so nothing shows above the row while it is stuck. */}
+      <div className={cx('flex items-baseline justify-center gap-2 border-b border-accent pb-1', desktop ? 'sticky -top-7 z-10 justify-start bg-surface pt-5' : 'pt-2.5')}>
         {custom ? (
           <input
             ref={inputRef}
