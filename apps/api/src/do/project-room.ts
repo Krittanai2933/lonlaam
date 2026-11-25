@@ -212,6 +212,8 @@ export class ProjectRoom extends DurableObject<Env> {
           comment: invoices.comment,
           amountMsat: invoices.amountMsat,
           paidAt: invoices.paidAt,
+          rewardId: invoices.rewardId,
+          rewardTitle: invoices.rewardTitle,
         }),
     ])
     this.sql.exec('DELETE FROM pending WHERE id = ?', row.id)

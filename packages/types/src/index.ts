@@ -30,7 +30,7 @@ export const LIMITS = {
     contact: { max: 200 },
   },
   /** English versions run longer than Thai, so they get more room. */
-  translation: { title: 200, summary: 280, body: 30_000, label: 200 },
+  translation: { title: 200, summary: 280, body: 30_000, label: 200, rewardTitle: 160, rewardDescription: 1000 },
   /** Hard cap per invoice, independent of what the creator's wallet allows. */
   invoiceSats: { min: 1, max: 10_000_000 },
   goalSats: { min: 1, max: 2_100_000_000_000_000 },
@@ -220,7 +220,7 @@ export interface Milestone {
   label: string
 }
 
-/** A reward tier. Its text is shown as written in every language (never machine-translated). */
+/** A reward tier. English readers get its text from ProjectTranslation.rewards. */
 export interface Reward {
   id: string
   title: string
@@ -232,8 +232,16 @@ export interface Reward {
 }
 
 export interface PublicReward extends Reward {
-  /** Paid invoices with this reward plus unpaid ones that haven't expired. */
+  /** Paid invoices with this reward plus unpaid ones that haven't expired (counts against limit). */
   claimed: number
+  /** Paid invoices with this reward. */
+  backers: number
+}
+
+/** Reward text in another language; '' fields fall back to the original. */
+export interface RewardText {
+  title: string
+  description: string
 }
 
 export interface ProjectStats {
@@ -280,6 +288,8 @@ export interface ProjectTranslation {
   body: string
   /** Same order and length as PublicProject.milestones (labels without a translation stay as written). */
   milestones: Milestone[]
+  /** Same order and length as PublicProject.rewards (text without a translation stays as written). */
+  rewards: (RewardText & { id: string })[]
 }
 
 /** The creator's own English version (UpdateProjectRequest.translation). */
@@ -289,6 +299,8 @@ export interface ProjectTranslationInput {
   body: string
   /** One label per milestone, in milestone order; '' = keep the original label. */
   milestones: string[]
+  /** By reward id; '' = keep the original. Ids that aren't rewards of the project are ignored. */
+  rewards: Record<string, RewardText>
 }
 
 /** Owner view: includes drafts. */
@@ -459,6 +471,12 @@ export interface ProjectStatsResponse {
 
 // ─── Supporters (paid invoices) ───────────────────────────────────────────────
 
+/** The reward a supporter chose, as it was named when they paid. */
+export interface SupporterReward {
+  id: string
+  title: string
+}
+
 export interface Supporter {
   invoiceId: string
   name: string | null
@@ -467,6 +485,7 @@ export interface Supporter {
   comment: string | null
   amountSats: number
   paidAt: number
+  reward: SupporterReward | null
 }
 
 /** GET /api/p/:slug/supporters?limit=&cursor= — newest first. */
@@ -478,14 +497,13 @@ export interface ListSupportersResponse {
 
 /** Owner view of a supporter: adds the reward they chose and how to reach them. */
 export interface OwnerSupporter extends Supporter {
-  reward: {
-    id: string
-    /** As it was when they paid. */
-    title: string
-    contact: string
-    /** When the creator marked it sent; null = still to send. */
-    sentAt: number | null
-  } | null
+  reward: OwnerSupporterReward | null
+}
+
+export interface OwnerSupporterReward extends SupporterReward {
+  contact: string
+  /** When the creator marked it sent; null = still to send. */
+  sentAt: number | null
 }
 
 export interface ListOwnerSupportersResponse {

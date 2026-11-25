@@ -216,7 +216,11 @@ function RewardList({ p, onPick, className }: { p: PublicProject; onPick: (rewar
               <span className="tnum text-[13px] text-accent-700">{f(t.rewardFrom, { sats: fmt(r.minSats) })}</span>
               <span className="text-[15px] font-medium">{r.title}</span>
               {r.description && <span className="text-sm whitespace-pre-line text-neutral-700">{r.description}</span>}
-              {left !== null && <span className="tnum text-xs text-neutral-600">{left === 0 ? t.soldOut : f(t.rewardLeft, { n: fmt(left) })}</span>}
+              <span className="tnum text-xs text-neutral-600">
+                {[f(t.rewardBackers, { n: fmt(r.backers) }), left === null ? null : left === 0 ? t.soldOut : f(t.rewardLeft, { n: fmt(left) })]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
             </button>
           )
         })}
@@ -283,9 +287,26 @@ function Leaderboard({ slug, compact }: { slug: string; compact?: boolean }) {
   )
 }
 
-function ActivityRow({ s, compact, now }: { s: Supporter; compact?: boolean; now: number }) {
+/** The reward a supporter chose: its English text while the translation is shown, else the name it had when they paid. */
+function useRewardTitle(p: PublicProject, s: Supporter): string | null {
+  const tr = useContext(TranslationCtx)
+  if (!s.reward) return null
+  const en = tr && !tr.original ? p.translation?.rewards.find((r) => r.id === s.reward!.id)?.title : undefined
+  return en ?? s.reward.title
+}
+
+function RewardTag({ title }: { title: string }) {
+  return (
+    <Tag tone="outline" icon="gift" className="ml-1.5 max-w-[180px] truncate align-middle">
+      {title}
+    </Tag>
+  )
+}
+
+function ActivityRow({ p, s, compact, now }: { p: PublicProject; s: Supporter; compact?: boolean; now: number }) {
   const { t, f } = useI18n()
   const { name: who, picture } = useSupporterIdentity(s)
+  const reward = useRewardTitle(p, s)
   return (
     <div className="flex gap-2.5 border-b border-divider py-2 text-sm">
       {picture ? (
@@ -298,11 +319,13 @@ function ActivityRow({ s, compact, now }: { s: Supporter; compact?: boolean; now
       {compact ? (
         <span className="flex-1">
           {who} <span className="tnum text-accent-700">+{fmt(s.amountSats)}</span>
+          {reward && <RewardTag title={reward} />}
         </span>
       ) : (
         <div className="flex-1">
           <div>
             <b className="font-semibold">{who}</b> <span className="tnum">{f(t.sent, { amount: fmt(s.amountSats) })}</span>
+            {reward && <RewardTag title={reward} />}
           </div>
           {s.comment && <div className="text-neutral-700 italic">“{s.comment}”</div>}
         </div>
@@ -312,7 +335,8 @@ function ActivityRow({ s, compact, now }: { s: Supporter; compact?: boolean; now
   )
 }
 
-function Activity({ slug, compact, limit }: { slug: string; compact?: boolean; limit?: number }) {
+function Activity({ p, compact, limit }: { p: PublicProject; compact?: boolean; limit?: number }) {
+  const slug = p.slug
   const { t } = useI18n()
   const now = useNow(60_000)
   const q = useActivity(slug)
@@ -321,7 +345,7 @@ function Activity({ slug, compact, limit }: { slug: string; compact?: boolean; l
     <div>
       <h6 className="mt-0 text-neutral-700">{t.activity}</h6>
       {rows.map((s) => (
-        <ActivityRow key={s.invoiceId} s={s} compact={compact} now={now} />
+        <ActivityRow key={s.invoiceId} p={p} s={s} compact={compact} now={now} />
       ))}
       {!q.isPending && rows.length === 0 && <p className="py-3 text-sm text-neutral-600">{t.noActivity}</p>}
       {!limit && q.hasNextPage && (
@@ -401,7 +425,7 @@ function MobileProject({ project: p, onContribute }: { project: PublicProject; o
         ) : (
           <div className="flex flex-col gap-[22px] pt-3.5">
             <Leaderboard slug={p.slug} />
-            <Activity slug={p.slug} />
+            <Activity p={p} />
           </div>
         )}
       </div>
@@ -501,12 +525,12 @@ function DesktopProject({ project: p, onContribute }: { project: PublicProject; 
               )}
             </>
           ) : (
-            <Activity slug={p.slug} />
+            <Activity p={p} />
           )}
         </div>
         <div className="flex flex-col gap-7">
           <Leaderboard slug={p.slug} compact />
-          <Activity slug={p.slug} compact limit={5} />
+          <Activity p={p} compact limit={5} />
         </div>
       </div>
     </div>

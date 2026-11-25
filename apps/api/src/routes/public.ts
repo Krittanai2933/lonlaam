@@ -61,6 +61,8 @@ function leaderRows(db: Db, projectId: string, limit: number) {
       comment: invoices.comment,
       amountMsat: invoices.amountMsat,
       paidAt: invoices.paidAt,
+      rewardId: invoices.rewardId,
+      rewardTitle: invoices.rewardTitle,
     })
     .from(invoices)
     .where(and(eq(invoices.projectId, projectId), eq(invoices.status, 'paid')))

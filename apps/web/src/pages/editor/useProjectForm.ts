@@ -1,4 +1,4 @@
-import type { Milestone, Project, ProjectCategory, ProjectTranslationInput, Reward, UpdateProjectRequest } from '@nampu/types'
+import type { Milestone, Project, ProjectCategory, ProjectTranslation, ProjectTranslationInput, Reward, RewardText, UpdateProjectRequest } from '@nampu/types'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError } from '../../lib/api'
@@ -24,6 +24,8 @@ export interface EnglishForm {
   body: string
   /** English milestone labels keyed by sats (milestone sats are unique), so reordering keeps them. */
   milestones: Record<number, string>
+  /** By reward id; '' = keep the original text. */
+  rewards: Record<string, RewardText>
 }
 
 export const emptyForm: FormState = { title: '', slug: '', summary: '', body: '', category: null, goalSats: null, endsAt: null, milestones: [], rewards: [], en: null }
@@ -34,6 +36,21 @@ export const englishForm = (tr: ProjectTranslationInput, milestones: Milestone[]
   summary: tr.summary,
   body: tr.body,
   milestones: Object.fromEntries(milestones.map((m, i) => [m.sats, tr.milestones[i] ?? ''])),
+  rewards: tr.rewards,
+})
+
+/** A stored translation as editor input; text equal to the original comes back as '' (no translation of its own). */
+export const translationAsInput = (tr: ProjectTranslation, p: Pick<Project, 'milestones' | 'rewards'>): ProjectTranslationInput => ({
+  title: tr.title,
+  summary: tr.summary,
+  body: tr.body,
+  milestones: tr.milestones.map((m, i) => (m.label === p.milestones[i]?.label ? '' : m.label)),
+  rewards: Object.fromEntries(
+    tr.rewards.map((r) => {
+      const orig = p.rewards.find((x) => x.id === r.id)
+      return [r.id, { title: r.title === orig?.title ? '' : r.title, description: r.description === orig?.description ? '' : r.description }]
+    }),
+  ),
 })
 
 /** What PATCH sends as `translation`: one label per (cleaned) milestone. */
@@ -43,6 +60,12 @@ export const translationInput = (f: FormState): ProjectTranslationInput | null =
     summary: f.en.summary.trim(),
     body: f.en.body,
     milestones: cleanMilestones(f.milestones).map((m) => f.en!.milestones[m.sats]?.trim() ?? ''),
+    rewards: Object.fromEntries(
+      cleanRewards(f.rewards).map((r) => {
+        const en = f.en!.rewards[r.id]
+        return [r.id, { title: en?.title.trim() ?? '', description: en?.description.trim() ?? '' }]
+      }),
+    ),
   }
 
 export const formFromProject = (p: Project): FormState => ({
@@ -55,11 +78,8 @@ export const formFromProject = (p: Project): FormState => ({
   endsAt: p.endsAt,
   milestones: p.milestones,
   rewards: p.rewards.map(({ claimed: _c, ...r }) => r),
-  en:
-    p.translation?.by === 'creator'
-      ? // Labels the creator left empty come back as the original; show them empty again.
-        englishForm({ ...p.translation, milestones: p.translation.milestones.map((m, i) => (m.label === p.milestones[i]?.label ? '' : m.label)) }, p.milestones)
-      : null,
+  // Text the creator left empty comes back as the original; show it empty again.
+  en: p.translation?.by === 'creator' ? englishForm(translationAsInput(p.translation, p), p.milestones) : null,
 })
 
 /** Milestones being edited may be incomplete; only send the valid, sorted ones. */
