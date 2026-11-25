@@ -85,6 +85,10 @@ which carry just `{ id, title }`. Paid invoices with a reward and no `reward_sen
 (`projects.rewards_en`, by reward id); the creator's own English version can cover it too. When an invoice
 with a reward is created, paid, or expires, the project's room broadcasts a `rewards` WebSocket message with
 every reward's current `claimed` and `backers`, so open pages update their counts without reloading.
+A supporter who cancels a pending invoice, or goes back to change its amount or reward, calls
+`POST /api/invoices/:id/release`: the invoice drops its reward and contact, which frees the slot at once and
+broadcasts the new counts. The Lightning invoice itself can't be withdrawn; if it is paid anyway, it counts as
+support without a reward.
 
 ## Monthly sprinkle
 

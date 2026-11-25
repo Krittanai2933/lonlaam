@@ -98,7 +98,7 @@ export class ProjectRoom extends DurableObject<Env> {
     return { ok: true }
   }
 
-  /** Called once an invoice with a reward is stored; trackInvoice runs before the insert. */
+  /** Called once an invoice with a reward is stored or released; trackInvoice runs before the insert. */
   async rewardsChanged(projectId: string): Promise<void> {
     await this.broadcastRewards(projectId)
   }
