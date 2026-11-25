@@ -1,11 +1,14 @@
 import type { Invoice, NostrEvent, PublicProject } from '@nampu/types'
+import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { LIMITS } from '@nampu/types'
 import { api, ApiError } from '../../lib/api'
 import { signSupporterProof } from '../../lib/nostr'
 
 export type FlowState = 'amount' | 'loading' | 'invoice' | 'expired' | 'error' | 'success'
 
 export const PRESETS = [1000, 5000, 10000, 21000, 50000, 100000]
+const DEFAULT_AMOUNT = 21000
 
 /**
  * Contribute state machine (Invoice Sheet states): amount → loading → invoice → success | expired,
@@ -13,8 +16,12 @@ export const PRESETS = [1000, 5000, 10000, 21000, 50000, 100000]
  * GET /api/invoices/:id poll as a fallback (5s while the socket is down, 30s otherwise).
  */
 export function useContribute(project: PublicProject) {
+  const qc = useQueryClient()
   const [state, setState] = useState<FlowState>('amount')
-  const [amount, setAmount] = useState(21000)
+  const [amount, setAmount] = useState(DEFAULT_AMOUNT)
+  const [rewardId, setRewardId] = useState<string | null>(null)
+  const [contact, setContact] = useState('')
+  const reward = project.rewards.find((r) => r.id === rewardId) ?? null
   const [anon, setAnon] = useState(false)
   const [name, setName] = useState('')
   // Signed when the supporter fills their name from Nostr; dropped if they retype the name.
@@ -25,6 +32,9 @@ export function useContribute(project: PublicProject) {
   const [amountError, setAmountError] = useState<string | null>(null)
   const [now, setNow] = useState(Date.now)
   const reqId = useRef(0)
+  // A new invoice waits for the previous one's reward to be released, or a limited reward
+  // could still count the supporter's own abandoned claim.
+  const releasing = useRef<Promise<unknown>>(Promise.resolve())
 
   const create = useCallback(async () => {
     const id = ++reqId.current
@@ -38,18 +48,33 @@ export function useContribute(project: PublicProject) {
         proof = await signSupporterProof(project.slug).catch(() => null)
         setNostrProof(proof)
       }
+      await releasing.current
       const inv = await api.createInvoice(project.slug, {
         amountSats: amount,
         ...(!anon && name.trim() && { supporterName: name.trim() }),
         ...(proof && { nostrProof: proof }),
         ...(message.trim() && { comment: message.trim() }),
+        ...(reward && { rewardId: reward.id, contact: contact.trim() }),
       })
-      if (id !== reqId.current) return
+      if (id !== reqId.current) {
+        // Left while it was being made: nobody will see this invoice, so it must not hold the reward.
+        if (reward) releasing.current = api.releaseInvoice(inv.id).catch(() => {})
+        return
+      }
+      // The room broadcasts new counts too; this covers a socket that is down.
+      if (reward) void qc.invalidateQueries({ queryKey: ['public', project.slug] })
       setInvoice(inv)
       setState('invoice')
     } catch (e) {
       if (id !== reqId.current) return
       // Amount problems belong on the amount step, not the error screen.
+      if (e instanceof ApiError && e.code === 'reward_unavailable') {
+        void qc.invalidateQueries({ queryKey: ['public', project.slug] })
+        setRewardId(null)
+        setAmountError(e.code)
+        setState('amount')
+        return
+      }
       if (e instanceof ApiError && (e.code === 'amount_out_of_range' || e.code === 'validation_failed')) {
         setAmountError(e.message)
         setState('amount')
@@ -58,13 +83,37 @@ export function useContribute(project: PublicProject) {
       setError(e instanceof Error ? e : new Error(String(e)))
       setState('error')
     }
-  }, [project.slug, amount, anon, name, nostrProof, message])
+  }, [project.slug, amount, anon, name, nostrProof, message, reward, contact, qc])
 
+  /** Picking a reward raises the amount to its minimum. */
+  const pickReward = useCallback(
+    (id: string | null) => {
+      setRewardId(id)
+      setAmountError(null)
+      const min = project.rewards.find((r) => r.id === id)?.minSats ?? 0
+      setAmount((a) => Math.max(a, min))
+    },
+    [project.rewards],
+  )
+
+  /** Back to the amount step. A live invoice gives its reward back, so picking it again works. */
   const reset = useCallback(() => {
     reqId.current++
+    if (state === 'invoice' && invoice) releasing.current = api.releaseInvoice(invoice.id).catch(() => {})
     setInvoice(null)
     setState('amount')
-  }, [])
+  }, [state, invoice])
+
+  /** Closing the flow: after a payment or a cancelled invoice, the next one starts fresh. */
+  const leave = useCallback(() => {
+    const finished = state === 'success' || state === 'invoice'
+    reset()
+    if (!finished) return
+    setAmount(DEFAULT_AMOUNT)
+    setRewardId(null)
+    setContact('')
+    setMessage('')
+  }, [state, reset])
 
   // Countdown + expiry.
   useEffect(() => {
@@ -144,12 +193,20 @@ export function useContribute(project: PublicProject) {
     },
     message,
     setMessage,
+    rewards: project.rewards,
+    reward,
+    pickReward,
+    contact,
+    setContact,
+    /** Ready to create an invoice: amount in range and, with a reward, enough for it plus a contact. */
+    canCreate: amount >= LIMITS.invoiceSats.min && amount <= LIMITS.invoiceSats.max && (!reward || (amount >= reward.minSats && !!contact.trim())),
     invoice,
     error,
     amountError,
     secsLeft,
     create,
     reset,
+    leave,
     /** Pending invoice the user might lose by closing. */
     hasLiveInvoice: state === 'invoice',
   }

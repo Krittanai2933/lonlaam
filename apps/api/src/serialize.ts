@@ -1,5 +1,6 @@
-import type { Creator, Invoice, Project, ProjectTranslation, PublicProject, Supporter } from '@nampu/types'
+import type { Creator, Invoice, OwnerSupporter, Project, ProjectTranslation, PublicProject, Supporter } from '@nampu/types'
 import type { CreatorRow, InvoiceRow, ProjectRow } from './db/schema'
+import { type RewardClaims, toPublicRewards } from './lib/rewards'
 import { sourceText, translationSourceHash } from './lib/translate'
 import { msatToSats } from './lib/util'
 
@@ -38,10 +39,15 @@ function toTranslation(r: ProjectRow, media: string): ProjectTranslation | null 
     summary: r.summaryEn ?? '',
     body: rewriteMedia(r.bodyEn ?? '', media),
     milestones: r.milestones.map((m, i) => ({ sats: m.sats, label: labels[i] || m.label })),
+    rewards: r.rewards.map((rw) => {
+      const en = r.rewardsEn?.[rw.id]
+      return { id: rw.id, title: en?.title || rw.title, description: en?.description || rw.description }
+    }),
   }
 }
 
-export function toProject(r: ProjectRow, creator: ProjectCreator, media: string): Omit<Project, 'translationStale'> {
+/** `claims` = rewardClaims() for this project. */
+export function toProject(r: ProjectRow, creator: ProjectCreator, media: string, claims: RewardClaims | undefined): Omit<Project, 'translationStale'> {
   return {
     id: r.id,
     slug: r.slug,
@@ -52,6 +58,7 @@ export function toProject(r: ProjectRow, creator: ProjectCreator, media: string)
     category: r.category,
     goalSats: r.goalSats,
     milestones: r.milestones,
+    rewards: toPublicRewards(r.rewards, claims),
     endsAt: r.endsAt,
     raisedSats: msatToSats(r.raisedMsat),
     supporterCount: r.supporterCount,
@@ -65,13 +72,13 @@ export function toProject(r: ProjectRow, creator: ProjectCreator, media: string)
 }
 
 /** Owner view, including whether the creator's English version predates their last Thai edit. */
-export async function toOwnerProject(r: ProjectRow, creator: ProjectCreator, media: string): Promise<Project> {
+export async function toOwnerProject(r: ProjectRow, creator: ProjectCreator, media: string, claims: RewardClaims | undefined): Promise<Project> {
   const translationStale = r.enManual && r.enSourceHash !== (await translationSourceHash(sourceText(r)))
-  return { ...toProject(r, creator, media), translationStale }
+  return { ...toProject(r, creator, media, claims), translationStale }
 }
 
-export function toPublicProject(r: ProjectRow, creator: ProjectCreator, media: string): PublicProject {
-  const { updatedAt: _u, status, ...rest } = toProject(r, creator, media)
+export function toPublicProject(r: ProjectRow, creator: ProjectCreator, media: string, claims: RewardClaims | undefined): PublicProject {
+  const { updatedAt: _u, status, ...rest } = toProject(r, creator, media, claims)
   if (status === 'draft') throw new Error('draft projects are not public')
   return { ...rest, status }
 }
@@ -89,7 +96,9 @@ export function toInvoice(r: InvoiceRow): Invoice {
   }
 }
 
-export function toSupporter(r: Pick<InvoiceRow, 'id' | 'supporterName' | 'supporterPubkey' | 'comment' | 'amountMsat' | 'paidAt'>): Supporter {
+export function toSupporter(
+  r: Pick<InvoiceRow, 'id' | 'supporterName' | 'supporterPubkey' | 'comment' | 'amountMsat' | 'paidAt' | 'rewardId' | 'rewardTitle'>,
+): Supporter {
   return {
     invoiceId: r.id,
     name: r.supporterName,
@@ -97,5 +106,13 @@ export function toSupporter(r: Pick<InvoiceRow, 'id' | 'supporterName' | 'suppor
     comment: r.comment,
     amountSats: msatToSats(r.amountMsat),
     paidAt: r.paidAt ?? 0,
+    reward: r.rewardId === null ? null : { id: r.rewardId, title: r.rewardTitle ?? '' },
   }
+}
+
+export function toOwnerSupporter(
+  r: Parameters<typeof toSupporter>[0] & Pick<InvoiceRow, 'contact' | 'rewardSentAt'>,
+): OwnerSupporter {
+  const s = toSupporter(r)
+  return { ...s, reward: s.reward && { ...s.reward, contact: r.contact ?? '', sentAt: r.rewardSentAt } }
 }

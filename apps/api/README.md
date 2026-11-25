@@ -41,8 +41,9 @@ Signature checks use `@noble/curves` (~0.7 ms warm, ~2 ms cold per verify). Behi
 
 - `GET /api/projects/:id/stats?range=today|7d|30d|all&tz=<minutes>` — one indexed D1 aggregate: totals,
   anonymous count, previous-window comparison, 14 buckets.
-- `GET /api/projects/:id/supporters?q=&filter=all|message&cursor=&limit=` — `&format=csv` exports up to
-  5000 rows (formula-injection safe).
+- `GET /api/projects/:id/supporters?q=&filter=all|message|reward&cursor=&limit=` — `&format=csv` exports up to
+  5000 rows (formula-injection safe), with the reward, contact and sent date.
+- `PUT /api/projects/:id/supporters/:invoiceId/reward { sent }` — marks a paid supporter's reward sent (or not).
 - `POST /api/projects/:id/images` — inline story images (same limits as the cover).
 
 ## Public endpoints (Discover)
@@ -70,6 +71,24 @@ Signature checks use `@noble/curves` (~0.7 ms warm, ~2 ms cold per verify). Behi
 
 Money never passes through the platform. Wallets that don't implement LUD-21 are rejected when the
 creator sets their address (`PATCH /api/me` probes by requesting a throwaway invoice).
+
+## Rewards
+
+Up to 10 tiers per project in `projects.rewards` (JSON, like milestones; saved with `PATCH /api/projects/:id`).
+Ids are short base36 strings made by the client. A supporter picks one with `rewardId` + `contact` on
+`POST /api/p/:slug/invoices`: the amount must reach `minSats`, and a limited reward refuses new invoices once
+paid plus unexpired pending ones reach `limit` (`409 reward_unavailable`; a few concurrent requests can
+oversell). The invoice keeps the reward's title as it was, so editing or removing a reward never loses what a
+supporter is owed. `contact` is owner-only: it never appears in public responses or the WebSocket broadcast,
+which carry just `{ id, title }`. Paid invoices with a reward and no `reward_sent_at` are counted as
+`allTime.rewardsToSend` in the stats. Reward text is translated with the rest of the project
+(`projects.rewards_en`, by reward id); the creator's own English version can cover it too. When an invoice
+with a reward is created, paid, or expires, the project's room broadcasts a `rewards` WebSocket message with
+every reward's current `claimed` and `backers`, so open pages update their counts without reloading.
+A supporter who cancels a pending invoice, or goes back to change its amount or reward, calls
+`POST /api/invoices/:id/release`: the invoice drops its reward and contact, which frees the slot at once and
+broadcasts the new counts. The Lightning invoice itself can't be withdrawn; if it is paid anyway, it counts as
+support without a reward.
 
 ## Monthly sprinkle
 
@@ -108,4 +127,4 @@ Locally both point at fixed dev values; mail lands in the mock wallet (`GET :879
 
 - Rate limits are per Cloudflare location and eventually consistent (by design of the binding): they stop
   bursts and scripted abuse, not a distributed attacker. Expired challenges/sessions are swept on each new challenge.
-- Rewards and project updates are not modelled yet.
+- Project updates are not modelled yet.

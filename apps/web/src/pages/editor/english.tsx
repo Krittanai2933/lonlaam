@@ -5,7 +5,7 @@ import { api, ApiError, errorText } from '../../lib/api'
 import { fmt } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import type { StepProps } from './steps'
-import { cleanMilestones, englishForm } from './useProjectForm'
+import { cleanMilestones, cleanRewards, englishForm } from './useProjectForm'
 
 /**
  * Optional English version of the project. Without one, English readers get the automatic
@@ -17,6 +17,7 @@ export function EnglishVersion({ form, set, project, ensureProject, flush }: Ste
   const [error, setError] = useState<string | null>(null)
   const en = form.en
   const milestones = cleanMilestones(form.milestones)
+  const rewards = cleanRewards(form.rewards)
 
   /** The automatic translation of the saved Thai text, as a starting point. False if it failed. */
   const autoTranslate = async (): Promise<boolean> => {
@@ -41,8 +42,9 @@ export function EnglishVersion({ form, set, project, ensureProject, flush }: Ste
     // Start from the translation readers see now when there is one, else ask for a fresh one,
     // else start empty.
     const tr = project?.translation
-    if (tr) set('en', englishForm({ ...tr, milestones: tr.milestones.map((m) => m.label) }, project.milestones))
-    else if (!(await autoTranslate())) set('en', { title: '', summary: '', body: '', milestones: {} })
+    if (tr)
+      set('en', englishForm({ ...tr, milestones: tr.milestones.map((m) => m.label), rewards: Object.fromEntries(tr.rewards.map(({ id, ...text }) => [id, text])) }, project.milestones))
+    else if (!(await autoTranslate())) set('en', { title: '', summary: '', body: '', milestones: {}, rewards: {} })
   }
 
   const backToAuto = () => {
@@ -92,6 +94,42 @@ export function EnglishVersion({ form, set, project, ensureProject, flush }: Ste
                   />
                 </div>
               ))}
+            </div>
+          )}
+          {rewards.length > 0 && (
+            <div className="field">
+              <label>{`${t.rewards} (English)`}</label>
+              {rewards.map((r) => {
+                const tr = en.rewards[r.id] ?? { title: '', description: '' }
+                const setTr = (patch: Partial<typeof tr>) => setEn({ rewards: { ...en.rewards, [r.id]: { ...tr, ...patch } } })
+                return (
+                  <div key={r.id} className="flex flex-col gap-1.5 border-b border-divider py-2">
+                    <div className="flex items-baseline justify-between gap-3 text-[13px] text-neutral-700">
+                      <span className="min-w-0 truncate">{r.title}</span>
+                      <span className="tnum flex-none">{fmt(r.minSats)} sats</span>
+                    </div>
+                    <Input
+                      lang="en"
+                      aria-label={`${t.rewardName} ${r.title} (English)`}
+                      placeholder={r.title}
+                      maxLength={LIMITS.translation.rewardTitle}
+                      value={tr.title}
+                      onChange={(e) => setTr({ title: e.target.value })}
+                    />
+                    {r.description && (
+                      <Textarea
+                        lang="en"
+                        className="min-h-16"
+                        aria-label={`${t.rewardDesc} ${r.title} (English)`}
+                        placeholder={r.description}
+                        maxLength={LIMITS.translation.rewardDescription}
+                        value={tr.description}
+                        onChange={(e) => setTr({ description: e.target.value })}
+                      />
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
           <div className="flex flex-wrap gap-2.5">

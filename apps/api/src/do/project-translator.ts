@@ -53,7 +53,7 @@ export class ProjectTranslator extends DurableObject<Env> {
     if (!needsTranslation(src)) {
       await db
         .update(projects)
-        .set({ titleEn: null, summaryEn: null, bodyEn: null, milestonesEn: null, enSourceHash: hash })
+        .set({ titleEn: null, summaryEn: null, bodyEn: null, milestonesEn: null, rewardsEn: null, enSourceHash: hash })
         .where(eq(projects.id, projectId))
       return
     }
@@ -77,7 +77,14 @@ export class ProjectTranslator extends DurableObject<Env> {
     // will replace this; the slightly stale translation is better than none until then.
     await db
       .update(projects)
-      .set({ titleEn: out.title, summaryEn: out.summary, bodyEn: out.body, milestonesEn: out.milestones, enSourceHash: hash })
+      .set({
+        titleEn: out.title,
+        summaryEn: out.summary,
+        bodyEn: out.body,
+        milestonesEn: out.milestones,
+        rewardsEn: Object.fromEntries(row.rewards.map((r, i) => [r.id, out.rewards[i]!])),
+        enSourceHash: hash,
+      })
       .where(eq(projects.id, projectId))
   }
 }

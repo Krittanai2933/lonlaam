@@ -1,7 +1,7 @@
 import type { PublicProject } from '@nampu/types'
 import { LIMITS } from '@nampu/types'
 import { Button, cx, Dialog, Icon, Input, Notice, Pulse, QRCode, Spinner, Switch } from '@nampu/ui'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { ApiError, errorText } from '../../lib/api'
 import { fmt, fmtDate } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
@@ -13,14 +13,33 @@ import { clock, PRESETS, useContribute, type Contribute } from './useContribute'
  * Entry point: bottom sheet on mobile (3a + Invoice Sheet), two-column modal on desktop (3c).
  * Closing while an invoice is live asks first (Foundations: Modal "ยกเลิกการสนับสนุน?").
  */
-export function ContributeFlow({ project, open, onClose, desktop }: { project: PublicProject; open: boolean; onClose: () => void; desktop: boolean }) {
+export function ContributeFlow({
+  project,
+  open,
+  onClose,
+  desktop,
+  rewardId,
+}: {
+  project: PublicProject
+  open: boolean
+  onClose: () => void
+  desktop: boolean
+  /** Opened from a reward card: preselect it. */
+  rewardId?: string | null
+}) {
   const c = useContribute(project)
   const [confirm, setConfirm] = useState(false)
+  const { pickReward } = c
+  // On opening only: pickReward changes with every live count update, which must not undo the
+  // supporter's own pick.
+  useEffect(() => {
+    if (open && rewardId) pickReward(rewardId)
+  }, [open, rewardId])
   const { t } = useI18n()
   const close = () => (c.hasLiveInvoice ? setConfirm(true) : done())
   const done = () => {
     setConfirm(false)
-    c.reset()
+    c.leave()
     onClose()
   }
   if (!open) return null
@@ -89,8 +108,8 @@ function DesktopModal({ project, c, onClose }: { project: PublicProject; c: Cont
   const { t } = useI18n()
   const editing = c.state === 'amount' || c.state === 'loading'
   return (
-    <Dialog open bare onClose={onClose} className="grid w-[780px] max-w-full grid-cols-2">
-      <div className="flex flex-col gap-3.5 border-r border-divider p-7">
+    <Dialog open bare onClose={onClose} className="max-h-full w-[780px] max-w-full flex-row overflow-hidden">
+      <div className="flex w-1/2 flex-col gap-3.5 overflow-y-auto border-r border-divider p-7">
         <div className="text-xs text-neutral-600">{t.supporting}</div>
         <div className="dialog-title -mt-2.5 text-[24px]">{project.title}</div>
         {editing ? (
@@ -114,12 +133,18 @@ function DesktopModal({ project, c, onClose }: { project: PublicProject; c: Cont
             ) : (
               c.name.trim() && <div className="text-[13px] text-neutral-700">{`${t.shownAs}: ${c.name.trim()}`}</div>
             )}
+            {c.reward && (
+              <div className="flex items-center gap-2 text-[13px] text-neutral-700">
+                <Icon name="gift" />
+                {c.reward.title}
+              </div>
+            )}
             {c.message.trim() && <div className="border-l border-divider pl-3 text-sm text-neutral-700 italic">“{c.message.trim()}”</div>}
           </>
         )}
         <p className="m-0 mt-auto text-xs text-neutral-600">{t.nonCustodial}</p>
       </div>
-      <div className="relative flex flex-col items-center gap-3 p-7">
+      <div className="relative flex w-1/2 flex-col items-center gap-3 p-7">
         <Button variant="ghost" plain iconOnly icon="x" aria-label={t.close} onClick={onClose} className="absolute top-2.5 right-2.5" />
         {c.state === 'amount' && (
           <>
@@ -145,7 +170,6 @@ function AmountForm({ c, desktop }: { c: Contribute; desktop?: boolean }) {
   const [custom, setCustom] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const [nostrBusy, setNostrBusy] = useState(false)
-  const valid = c.amount >= LIMITS.invoiceSats.min && c.amount <= LIMITS.invoiceSats.max
 
   const useNostrName = async () => {
     if (!window.nostr) return
@@ -164,7 +188,9 @@ function AmountForm({ c, desktop }: { c: Contribute; desktop?: boolean }) {
 
   return (
     <div className="flex flex-col gap-3.5">
-      <div className={cx('flex items-baseline justify-center gap-2 border-b border-accent pt-2.5 pb-1', desktop && 'justify-start')}>
+      {/* Sticky on desktop: picking a reward further down can raise the amount, and that must stay in view. */}
+      {/* -top-7 cancels the column's padding, so nothing shows above the row while it is stuck. */}
+      <div className={cx('flex items-baseline justify-center gap-2 border-b border-accent pb-1', desktop ? 'sticky -top-7 z-10 justify-start bg-surface pt-5' : 'pt-2.5')}>
         {custom ? (
           <input
             ref={inputRef}
@@ -201,7 +227,8 @@ function AmountForm({ c, desktop }: { c: Contribute; desktop?: boolean }) {
           )
         })}
       </div>
-      {c.amountError && <Notice tone="danger">{c.amountError}</Notice>}
+      {c.amountError && <Notice tone="danger">{c.amountError === 'reward_unavailable' ? t.rewardUnavailable : c.amountError}</Notice>}
+      {c.rewards.length > 0 && <RewardPicker c={c} />}
       <Switch className="border-t border-divider" icon="eyeOff" label={t.anonToggle} checked={c.anon} onChange={c.setAnon} />
       {!c.anon && (
         <div className="relative">
@@ -214,9 +241,55 @@ function AmountForm({ c, desktop }: { c: Contribute; desktop?: boolean }) {
         </div>
       )}
       <Input className="min-h-11" aria-label={t.msgPh} placeholder={t.msgPh} maxLength={LIMITS.comment.max} value={c.message} onChange={(e) => c.setMessage(e.target.value)} />
-      <Button variant="cta" icon="zap" className="h-12 text-base" disabled={!valid || c.state === 'loading'} onClick={() => void c.create()}>
+      <Button variant="cta" icon="zap" className="h-12 text-base" disabled={!c.canCreate || c.state === 'loading'} onClick={() => void c.create()}>
         {t.createInvoice}
       </Button>
+    </div>
+  )
+}
+
+function RewardPicker({ c }: { c: Contribute }) {
+  const { t, f } = useI18n()
+  const name = useId()
+  const option = (id: string | null, title: string, sub: ReactNode, disabled = false) => {
+    const on = (c.reward?.id ?? null) === id
+    return (
+      <label
+        key={id ?? ''}
+        className={cx('flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5', disabled && 'cursor-not-allowed opacity-45')}
+        style={{ borderColor: on ? 'var(--color-accent)' : 'var(--color-divider)', background: on ? 'var(--color-accent-100)' : 'transparent' }}
+      >
+        <input type="radio" name={name} className="mt-1 accent-[var(--color-accent)]" checked={on} disabled={disabled} onChange={() => c.pickReward(id)} />
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-medium">{title}</span>
+          {sub && <span className="tnum block text-xs text-neutral-600">{sub}</span>}
+        </span>
+      </label>
+    )
+  }
+  return (
+    <div role="radiogroup" aria-label={t.rewardPick} className="flex flex-col gap-2 border-t border-divider pt-3">
+      <div className="text-[13px] text-neutral-700">{t.rewardPick}</div>
+      {option(null, t.noReward, null)}
+      {c.rewards.map((r) => {
+        const left = r.limit === null ? null : Math.max(0, r.limit - r.claimed)
+        const sub = [f(t.rewardFrom, { sats: fmt(r.minSats) }), left === null ? null : left === 0 ? t.soldOut : f(t.rewardLeft, { n: fmt(left) })]
+        return option(r.id, r.title, sub.filter(Boolean).join(' · '), left === 0 && c.reward?.id !== r.id)
+      })}
+      {c.reward && (
+        <>
+          {c.amount < c.reward.minSats && <div className="text-xs text-danger">{f(t.rewardNeedsMore, { sats: fmt(c.reward.minSats) })}</div>}
+          <Input
+            className="min-h-11"
+            aria-label={t.contactPh}
+            placeholder={t.contactPh}
+            maxLength={LIMITS.rewards.contact.max}
+            value={c.contact}
+            onChange={(e) => c.setContact(e.target.value)}
+          />
+          <div className="-mt-1 text-xs text-neutral-600">{t.contactNote}</div>
+        </>
+      )}
     </div>
   )
 }
@@ -255,6 +328,12 @@ function PayPanel({ c, qrSize, desktop }: { c: Contribute; qrSize: number; deskt
       {!desktop && (
         <div className="tnum text-[26px] leading-[1.1] font-medium">
           {fmt(c.invoice.amountSats)} <span className="text-sm font-normal text-neutral-600">sats</span>
+        </div>
+      )}
+      {!desktop && c.reward && (
+        <div className="-mt-1.5 flex items-center gap-2 text-[13px] text-neutral-700">
+          <Icon name="gift" />
+          {c.reward.title}
         </div>
       )}
       <QRCode
@@ -337,6 +416,7 @@ function SuccessPanel({ project, c, onBack }: { project: PublicProject; c: Contr
       <div className="tnum mt-1.5 w-full border-t border-divider text-left text-sm">
         <Row label={t.amountL} value={<span className="font-medium">{fmt(c.invoice?.amountSats ?? c.amount)} sats</span>} />
         <Row label={t.shownAs} value={c.anon || !c.name.trim() ? t.anonymous : c.name.trim()} />
+        {c.reward && <Row label={t.reward} value={c.reward.title} />}
         <Row label={t.timeL} value={time} />
       </div>
       <ShareButtons project={project} className="mt-1.5 w-full" size="lg" />

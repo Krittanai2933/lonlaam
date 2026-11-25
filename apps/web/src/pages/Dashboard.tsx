@@ -1,7 +1,7 @@
-import type { Project, ProjectStatsResponse, StatsRange, Supporter, SupporterFilter } from '@nampu/types'
+import type { ListOwnerSupportersResponse, OwnerSupporter, Project, ProjectStatsResponse, StatsRange, SupporterFilter } from '@nampu/types'
 import { STATS_RANGES } from '@nampu/types'
 import { Avatar, BarChart, Brand, Button, cx, Icon, Menu, Notice, Progress, Seg, Tag, type IconName, type MenuItem } from '@nampu/ui'
-import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
+import { type InfiniteData, keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useState, type ReactNode } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router'
 import { SupporterAvatar, SupporterName } from '../components/supporter'
@@ -121,6 +121,56 @@ function useProjectMenu(current: Project): MenuItem[] {
   ]
 }
 
+/** The reward a supporter chose, how to reach them, and the creator's "sent" toggle. */
+function RewardCell({ projectId, s }: { projectId: string; s: OwnerSupporter }) {
+  const { t } = useI18n()
+  const qc = useQueryClient()
+  const mark = useMutation({
+    mutationFn: (sent: boolean) => api.setRewardSent(projectId, s.invoiceId, sent),
+    onSuccess: (updated) => {
+      qc.setQueriesData<InfiniteData<ListOwnerSupportersResponse>>({ queryKey: ['supporters', projectId] }, (d) =>
+        d && { ...d, pages: d.pages.map((p) => ({ ...p, supporters: p.supporters.map((x) => (x.invoiceId === updated.invoiceId ? updated : x)) })) },
+      )
+      void qc.invalidateQueries({ queryKey: ['stats', projectId] })
+    },
+  })
+  if (!s.reward) return <Tag tone="plain">—</Tag>
+  const sent = s.reward.sentAt !== null
+  return (
+    <div className="min-w-0">
+      <div className="flex items-center gap-1.5 text-sm">
+        <Icon name="gift" size={14} />
+        <span className="truncate">{s.reward.title}</span>
+      </div>
+      <div className="text-xs break-all text-neutral-600 select-all">{s.reward.contact}</div>
+      {sent ? (
+        <div className="mt-1.5 flex items-center gap-1.5 text-xs">
+          <span className="flex items-center gap-1 text-success">
+            <Icon name="check" size={14} />
+            {t.rewardSent}
+          </span>
+          <span className="text-neutral-500">·</span>
+          <button
+            type="button"
+            className="cursor-pointer text-neutral-600 underline underline-offset-2 hover:text-fg disabled:opacity-50"
+            disabled={mark.isPending}
+            onClick={() => mark.mutate(false)}
+          >
+            {t.undo}
+          </button>
+        </div>
+      ) : (
+        <div className="mt-1.5 flex flex-wrap items-center gap-2.5">
+          <Tag tone="accent">{t.rewardPending}</Tag>
+          <Button variant="secondary" icon="check" className="h-8 text-[13px]" loading={mark.isPending} onClick={() => mark.mutate(true)}>
+            {t.markSent}
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function csvName(p: Project) {
   return `${p.slug}-supporters-${new Date().toISOString().slice(0, 10)}.csv`
 }
@@ -133,7 +183,9 @@ function MobileDashboard({ project }: { project: Project }) {
   const [range, setRange] = useState<StatsRange>('7d')
   const stats = useStats(project.id, range)
   const delta = useDelta(stats.data)
-  const supporters = useSupporters(project.id, '', 'all')
+  const [view, setView] = useState<'overview' | 'rewards'>('overview')
+  const supporters = useSupporters(project.id, '', view === 'rewards' ? 'reward' : 'all')
+  const allStats = useStats(project.id, 'all')
   const menu = useProjectMenu(project)
   const s = stats.data
   const goalPct = pctOfGoal(project)
@@ -151,6 +203,21 @@ function MobileDashboard({ project }: { project: Project }) {
 
       <div className="px-5 pt-2.5 pb-[90px]">
         <StatusBanner project={project} />
+        {view === 'rewards' ? (
+          <>
+            <div className="mt-2 flex items-end justify-between">
+              <div>
+                <div className="mb-1 text-[13px] text-neutral-700">{t.rewardsToSend}</div>
+                <div className="tnum text-[34px] leading-[1.1] font-medium">{fmt(allStats.data?.allTime.rewardsToSend ?? 0)}</div>
+              </div>
+              <Button variant="ghost" icon="download" onClick={() => void api.downloadSupportersCsv(project.id, { filter: 'reward' }, csvName(project))}>
+                CSV
+              </Button>
+            </div>
+            <SupporterList query={supporters} projectId={project.id} rewards />
+          </>
+        ) : (
+          <>
         <Seg<StatsRange>
           full
           aria-label={t.received}
@@ -179,13 +246,15 @@ function MobileDashboard({ project }: { project: Project }) {
             CSV
           </Button>
         </div>
-        <SupporterList query={supporters} />
+        <SupporterList query={supporters} projectId={project.id} />
+          </>
+        )}
       </div>
 
       <nav className="fixed inset-x-0 bottom-0 grid grid-cols-4 border-t border-divider bg-bg px-2 pt-2 pb-6 text-[11px]">
-        <BottomTab icon="dash" label={t.overview} active />
+        <BottomTab icon="dash" label={t.overview} active={view === 'overview'} onClick={() => setView('overview')} />
         <BottomTab icon="msg" label={t.updatesNav} disabled title={t.comingSoon} />
-        <BottomTab icon="gift" label={t.rewards} disabled title={t.comingSoon} />
+        <BottomTab icon="gift" label={t.rewards} active={view === 'rewards'} onClick={() => setView('rewards')} />
         <BottomTab icon="edit" label={t.edit} to={`/projects/${project.id}/edit`} />
       </nav>
     </div>
@@ -201,7 +270,23 @@ function MobileStat({ value, label, bordered }: { value: string; label: string; 
   )
 }
 
-function BottomTab({ icon, label, active, disabled, to, title }: { icon: IconName; label: string; active?: boolean; disabled?: boolean; to?: string; title?: string }) {
+function BottomTab({
+  icon,
+  label,
+  active,
+  disabled,
+  to,
+  title,
+  onClick,
+}: {
+  icon: IconName
+  label: string
+  active?: boolean
+  disabled?: boolean
+  to?: string
+  title?: string
+  onClick?: () => void
+}) {
   const cls = cx('flex flex-col items-center gap-[3px] no-underline', active ? 'text-accent-700' : 'text-neutral-600', disabled && 'opacity-45')
   const inner = (
     <>
@@ -215,6 +300,12 @@ function BottomTab({ icon, label, active, disabled, to, title }: { icon: IconNam
         {inner}
       </Link>
     )
+  if (onClick)
+    return (
+      <button type="button" className={cx(cls, 'cursor-pointer bg-transparent')} aria-current={active ? 'page' : undefined} onClick={onClick}>
+        {inner}
+      </button>
+    )
   return (
     <span className={cls} aria-current={active ? 'page' : undefined} aria-disabled={disabled} title={title}>
       {inner}
@@ -224,12 +315,12 @@ function BottomTab({ icon, label, active, disabled, to, title }: { icon: IconNam
 
 type SupportersQuery = ReturnType<typeof useSupporters>
 
-function SupporterList({ query }: { query: SupportersQuery }) {
+function SupporterList({ query, projectId, rewards }: { query: SupportersQuery; projectId: string; rewards?: boolean }) {
   const { t } = useI18n()
   const now = useNow(60_000)
   const rows = query.data?.pages.flatMap((p) => p.supporters) ?? []
   if (query.isPending) return <div className="py-6 text-center text-sm text-neutral-600">…</div>
-  if (!rows.length) return <div className="py-6 text-center text-sm text-neutral-600">{t.noSupporters}</div>
+  if (!rows.length) return <div className="py-6 text-center text-sm text-neutral-600">{rewards ? t.noRewardsChosen : t.noSupporters}</div>
   return (
     <>
       {rows.map((s) => (
@@ -242,6 +333,11 @@ function SupporterList({ query }: { query: SupportersQuery }) {
             <div className="truncate text-xs text-neutral-600">{s.comment || `Lightning · ${ago(s.paidAt, t.ago, now)}`}</div>
           </div>
           <span className="tnum text-sm font-medium text-accent-700">+{fmt(s.amountSats)}</span>
+          {rewards && (
+            <div className="col-start-2 col-end-4">
+              <RewardCell projectId={projectId} s={s} />
+            </div>
+          )}
         </div>
       ))}
       {query.hasNextPage && (
@@ -324,7 +420,19 @@ function DesktopDashboard({ project }: { project: Project }) {
           </div>
           <Kpi label={t.last7} value={fmt(week.data?.totalSats ?? 0)} sub={weekDelta ? <span className={weekDelta.tone === 'danger' ? 'text-danger' : 'text-success'}>{weekDelta.pct}</span> : null} />
           <Kpi label={t.backers} value={fmt(allTime?.backers ?? project.supporterCount)} sub={<span className="text-neutral-600">{f(t.anonCount, { n: allTime?.anonymous ?? 0 })}</span>} />
-          <Kpi label={t.rewardsToSend} value="—" sub={<span className="text-accent-700">{t.comingSoon}</span>} />
+          <Kpi
+            label={t.rewardsToSend}
+            value={fmt(allTime?.rewardsToSend ?? 0)}
+            sub={
+              allTime?.rewardsToSend ? (
+                <button type="button" className="cursor-pointer text-accent-700 underline underline-offset-2" onClick={() => setFilter('reward')}>
+                  {t.showRewards}
+                </button>
+              ) : (
+                <span className="text-neutral-600">{project.rewards.length ? t.allSent : '—'}</span>
+              )
+            }
+          />
         </div>
 
         <div className="mt-6 mb-2 flex items-center gap-3">
@@ -333,13 +441,13 @@ function DesktopDashboard({ project }: { project: Project }) {
             <Icon name="search" />
             <input className="w-full bg-transparent text-fg outline-none placeholder:text-neutral-600" placeholder={t.searchSup} value={search} onChange={(e) => setSearch(e.target.value)} />
           </label>
-          <Seg<SupporterFilter | 'reward'>
+          <Seg<SupporterFilter>
             aria-label={t.supporters}
             value={filter}
-            onChange={(v) => v !== 'reward' && setFilter(v)}
+            onChange={setFilter}
             options={[
               { value: 'all', label: t.all },
-              { value: 'reward', label: t.withReward, disabled: true, title: t.comingSoon },
+              { value: 'reward', label: t.withReward },
               { value: 'message', label: t.withMsg },
             ]}
           />
@@ -347,7 +455,7 @@ function DesktopDashboard({ project }: { project: Project }) {
             CSV
           </Button>
         </div>
-        <SupporterTable query={supporters} searching={!!q || filter !== 'all'} />
+        <SupporterTable query={supporters} projectId={project.id} searching={!!q || filter !== 'all'} />
       </div>
     </div>
   )
@@ -363,10 +471,10 @@ function Kpi({ label, value, sub }: { label: string; value: string; sub: ReactNo
   )
 }
 
-function SupporterTable({ query, searching }: { query: SupportersQuery; searching: boolean }) {
+function SupporterTable({ query, projectId, searching }: { query: SupportersQuery; projectId: string; searching: boolean }) {
   const { t } = useI18n()
   const now = useNow(60_000)
-  const rows: Supporter[] = query.data?.pages.flatMap((p) => p.supporters) ?? []
+  const rows: OwnerSupporter[] = query.data?.pages.flatMap((p) => p.supporters) ?? []
   return (
     <>
       <table className="table">
@@ -395,8 +503,8 @@ function SupporterTable({ query, searching }: { query: SupportersQuery; searchin
               </td>
               <td className="tnum text-right font-medium">{fmt(s.amountSats)}</td>
               <td className="max-w-[300px] text-neutral-700 italic">{s.comment || '—'}</td>
-              <td>
-                <Tag tone="plain">—</Tag>
+              <td className="min-w-[220px]">
+                <RewardCell projectId={projectId} s={s} />
               </td>
               <td className="text-[13px] whitespace-nowrap text-neutral-600">{ago(s.paidAt, t.ago, now)}</td>
             </tr>

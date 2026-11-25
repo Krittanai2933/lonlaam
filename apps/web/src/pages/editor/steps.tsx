@@ -1,6 +1,6 @@
-import type { Creator, Project } from '@nampu/types'
+import type { Creator, Project, Reward } from '@nampu/types'
 import { LIMITS, PROJECT_CATEGORIES } from '@nampu/types'
-import { Button, Chip, cx, Field, Icon, Input, Notice, SatsInput, Tag, Textarea } from '@nampu/ui'
+import { Button, Chip, cx, Dialog, Field, Icon, Input, Notice, SatsInput, Tag, Textarea } from '@nampu/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useRef, useState, type ReactNode } from 'react'
 import { api, ApiError, errorText } from '../../lib/api'
@@ -8,7 +8,7 @@ import { meKey } from '../../lib/auth'
 import { fmt, fmtDate, slugify } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import { EnglishVersion } from './english'
-import type { FormState } from './useProjectForm'
+import { newRewardId, rewardGaps, type FormState } from './useProjectForm'
 
 export interface StepProps {
   form: FormState
@@ -378,19 +378,100 @@ function CellInput({ value, onChange, ...rest }: { value: string; onChange: (v: 
   )
 }
 
-// ─── 4 · Rewards (coming soon) ────────────────────────────────────────────────
+// ─── 4 · Rewards ──────────────────────────────────────────────────────────────
 
-export function RewardsStep() {
-  const { t } = useI18n()
+export function RewardsStep({ form, set, project, desktop, fieldErrors }: StepProps) {
+  const { t, f } = useI18n()
+  const rs = form.rewards
+  const claimed = new Map(project?.rewards.map((r) => [r.id, r.claimed]))
+  const setR = (i: number, patch: Partial<Reward>) => set('rewards', rs.map((r, j) => (j === i ? { ...r, ...patch } : r)))
+  const add = () => rs.length < LIMITS.rewards.max && set('rewards', [...rs, { id: newRewardId(), title: '', description: '', minSats: 0, limit: null }])
+  const remove = (id: string) => set('rewards', rs.filter((r) => r.id !== id))
+  // Supporters who chose it keep it on the dashboard, but nobody new can, so ask first.
+  const [removing, setRemoving] = useState<Reward | null>(null)
+  // Gaps show once the creator has moved on from a row, not while they are still typing in it.
+  const [left, setLeft] = useState<ReadonlySet<string>>(new Set())
+
   return (
     <div className="flex flex-col gap-3">
-      <Button variant="secondary" icon="plus" className="h-12 border-dashed" disabled title={t.comingSoon}>
+      {rs.map((r, i) => {
+        const n = claimed.get(r.id) ?? 0
+        const gaps = left.has(r.id) ? rewardGaps(r) : []
+        const minSats = (
+          <Field label={t.rewardMin} error={gaps.includes('minSats') ? t.rewardNeedsMin : null}>
+            {(id) => <SatsInput id={id} size="md" value={r.minSats || null} onChange={(v) => setR(i, { minSats: Math.min(v ?? 0, LIMITS.invoiceSats.max) })} />}
+          </Field>
+        )
+        const limit = (
+          <Field label={t.rewardLimit}>
+            {(id) => (
+              <Input
+                id={id}
+                className="tnum min-h-11"
+                inputMode="numeric"
+                placeholder={t.noLimit}
+                value={r.limit ? fmt(r.limit) : ''}
+                onChange={(e) => setR(i, { limit: Math.min(Number(e.target.value.replace(/\D/g, '').slice(0, 6)) || 0, LIMITS.rewards.limit.max) || null })}
+              />
+            )}
+          </Field>
+        )
+        return (
+          <section
+            key={r.id}
+            aria-label={r.title || t.addReward}
+            className="flex flex-col gap-3 rounded-md border border-divider p-4"
+            onBlur={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget)) setLeft((s) => new Set(s).add(r.id))
+            }}
+          >
+            <div className="flex items-start gap-2">
+              <Field label={t.rewardName} className="flex-1" error={gaps.includes('title') ? t.rewardNeedsTitle : null}>
+                {(id) => <Input id={id} className="min-h-11" maxLength={LIMITS.rewards.title.max} value={r.title} onChange={(e) => setR(i, { title: e.target.value })} />}
+              </Field>
+              <Button variant="ghost" plain iconOnly icon="x" className="mt-6" aria-label={t.removeReward} onClick={() => (n > 0 ? setRemoving(r) : remove(r.id))} />
+            </div>
+            <div className={cx('grid gap-3', desktop ? 'grid-cols-[1fr_180px]' : 'grid-cols-2')}>
+              {minSats}
+              {limit}
+            </div>
+            <Field label={t.rewardDesc} counter={`${r.description.length} / ${LIMITS.rewards.description.max}`}>
+              {(id) => (
+                <Textarea id={id} className="min-h-20" maxLength={LIMITS.rewards.description.max} value={r.description} onChange={(e) => setR(i, { description: e.target.value })} />
+              )}
+            </Field>
+            {n > 0 && <div className="tnum text-xs text-neutral-600">{f(t.rewardClaimed, { n: fmt(n) })}</div>}
+          </section>
+        )
+      })}
+      {fieldErrors.rewards && <Notice tone="danger">{t.rewardsInvalid}</Notice>}
+      <Button variant="secondary" icon="plus" className="h-12 border-dashed" onClick={add} disabled={rs.length >= LIMITS.rewards.max}>
         {t.addReward}
-        <Tag tone="outline" className="ml-1">
-          {t.comingSoon}
-        </Tag>
       </Button>
       <p className="m-0 text-[13px] text-neutral-600">{t.rewardsOptional}</p>
+      <Dialog
+        open={!!removing}
+        onClose={() => setRemoving(null)}
+        title={t.removeRewardTitle}
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => setRemoving(null)}>
+              {t.keepReward}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                remove(removing!.id)
+                setRemoving(null)
+              }}
+            >
+              {t.removeReward}
+            </Button>
+          </>
+        }
+      >
+        <div className="dialog-body">{removing && f(t.removeRewardBody, { title: removing.title, n: fmt(claimed.get(removing.id) ?? 0) })}</div>
+      </Dialog>
     </div>
   )
 }

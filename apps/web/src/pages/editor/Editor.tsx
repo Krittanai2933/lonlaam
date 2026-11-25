@@ -9,7 +9,7 @@ import { ago, daysLeft, short } from '../../lib/format'
 import { useIsDesktop, useNow } from '../../lib/hooks'
 import { useI18n } from '../../lib/i18n'
 import { BasicsStep, GoalStep, PayoutStep, RewardsStep, slugValid, StoryStep, type StepProps } from './steps'
-import { cleanMilestones, useProjectForm, type FormState, type SaveState } from './useProjectForm'
+import { cleanMilestones, cleanRewards, hasIncompleteReward, useProjectForm, type FormState, type SaveState } from './useProjectForm'
 
 const STEPS = 5
 
@@ -54,6 +54,7 @@ function Editor({ project }: { project: Project | undefined }) {
         goalSats: form.goalSats,
         endsAt: form.endsAt,
         milestones: cleanMilestones(form.milestones),
+        rewards: cleanRewards(form.rewards),
       })
       qc.setQueryData(['project', p.id], p)
       void qc.invalidateQueries({ queryKey: ['myProjects'] })
@@ -126,7 +127,7 @@ function Editor({ project }: { project: Project | undefined }) {
     <BasicsStep key="b" {...stepProps} />,
     <StoryStep key="s" {...stepProps} />,
     <GoalStep key="g" {...stepProps} />,
-    <RewardsStep key="r" />,
+    <RewardsStep key="r" {...stepProps} />,
     <PayoutStep key="p" {...stepProps} doneFlags={done} />,
   ][step]
   const nextLabel = step === STEPS - 1 ? (isDraft ? t.publish : t.saveChanges) : t.next
@@ -151,7 +152,7 @@ function Editor({ project }: { project: Project | undefined }) {
           <Link to={project ? `/dashboard/${project.id}` : '/dashboard'} className="nav-brand">
             <Brand />
           </Link>
-          <SaveLabel save={save} />
+          <SaveLabel save={save} incomplete={!done[3]} />
           <a
             className={cx('btn btn-secondary', !project && 'pointer-events-none opacity-45')}
             aria-disabled={!project}
@@ -234,7 +235,7 @@ function Editor({ project }: { project: Project | undefined }) {
         {content}
         {extras}
         <div className="text-center text-xs text-neutral-600">
-          <SaveLabel save={save} />
+          <SaveLabel save={save} incomplete={!done[3]} />
         </div>
       </div>
       <div className="sticky bottom-0 flex gap-2.5 border-t border-divider bg-bg px-5 pt-3 pb-[26px]">
@@ -252,9 +253,11 @@ function Editor({ project }: { project: Project | undefined }) {
 
 }
 
-function SaveLabel({ save }: { save: SaveState }) {
+/** `incomplete`: a half-filled reward is kept out of the save, so "saved" would not be true. */
+function SaveLabel({ save, incomplete }: { save: SaveState; incomplete: boolean }) {
   const { t, f } = useI18n()
   const now = useNow(20_000)
+  if (incomplete && save.kind !== 'saving') return <span className="text-[13px] text-danger">{t.rewardsIncomplete}</span>
   const text =
     save.kind === 'saving'
       ? t.saving
@@ -273,7 +276,7 @@ function doneFlags(form: FormState, hasLn: boolean): boolean[] {
     !!form.title.trim() && slugValid(form.slug) && !!form.summary.trim(),
     form.body.trim().length > 0,
     !!form.goalSats,
-    true, // rewards are optional (and not available yet)
+    !hasIncompleteReward(form.rewards), // optional, but a half-filled one is not saved
     hasLn,
   ]
 }

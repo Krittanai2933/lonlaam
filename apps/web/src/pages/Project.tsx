@@ -1,8 +1,8 @@
-import type { GetProjectResponse, GetPublicProjectResponse, ListSupportersResponse, ProjectStats, PublicProject, Supporter } from '@nampu/types'
+import type { GetProjectResponse, GetPublicProjectResponse, ListSupportersResponse, ProjectStats, PublicProject, Supporter, WsRewardsMessage } from '@nampu/types'
 import { PUBLIC_PAGE } from '@nampu/types'
 import { Avatar, Brand, Button, cx, Icon, Plate, Progress, Tag, Tabs } from '@nampu/ui'
 import { type InfiniteData, type QueryClient, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useId, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { ContributeFlow } from '../components/contribute/Contribute'
 import { Markdown } from '../components/Markdown'
@@ -38,7 +38,8 @@ export default function ProjectPage() {
     queryFn: () => (previewId ? api.project(previewId).then(asPreview) : api.publicProject(slug)),
     retry: (n, e) => !(e instanceof ApiError && (e.status === 404 || e.status === 401)) && n < 2,
   })
-  const [contributing, setContributing] = useState(false)
+  /** Open contribute flow; `reward` = opened from that reward card. */
+  const [contributing, setContributing] = useState<{ reward: string | null } | null>(null)
   const { lang } = useI18n()
   const [showOriginal, setShowOriginal] = useState(false)
 
@@ -46,6 +47,7 @@ export default function ProjectPage() {
   // cost every open viewer two requests per payment.
   useProjectSocket(project.data && !previewId ? slug : null, (m) => {
     if (m.type === 'payment') applyPayment(qc, slug, m.supporter, m.stats)
+    if (m.type === 'rewards') applyRewards(qc, slug, m.rewards)
   })
 
   if (project.isPending) return <FullPageSpinner />
@@ -65,8 +67,8 @@ export default function ProjectPage() {
     )
   return (
     <TranslationCtx.Provider value={translation}>
-      <View project={p} onContribute={() => setContributing(true)} />
-      <ContributeFlow project={p} open={contributing} onClose={() => setContributing(false)} desktop={desktop} />
+      <View project={p} onContribute={(reward) => setContributing({ reward: reward ?? null })} />
+      <ContributeFlow project={p} open={!!contributing} rewardId={contributing?.reward} onClose={() => setContributing(null)} desktop={desktop} />
     </TranslationCtx.Provider>
   )
 }
@@ -162,6 +164,13 @@ function applyPayment(qc: QueryClient, slug: string, s: Supporter, stats: Projec
   qc.setQueryData<Supporter[]>(['leaderboard', slug], (l) => l && withLeader(l, s))
 }
 
+function applyRewards(qc: QueryClient, slug: string, counts: WsRewardsMessage['rewards']) {
+  const byId = new Map(counts.map((c) => [c.id, c]))
+  qc.setQueryData<GetPublicProjectResponse>(['public', slug], (p) =>
+    p && { ...p, rewards: p.rewards.map((r) => ({ ...r, ...byId.get(r.id) })) },
+  )
+}
+
 const withSupporter = (page: ListSupportersResponse, s: Supporter): ListSupportersResponse =>
   page.supporters.some((x) => x.invoiceId === s.invoiceId) ? page : { ...page, supporters: [s, ...page.supporters] }
 
@@ -190,6 +199,77 @@ function ContributeButton({ p, onClick, className }: { p: PublicProject; onClick
     <Button variant="cta" icon={open ? 'zap' : undefined} className={className} disabled={!open} onClick={onClick}>
       {open ? t.contribute : preview ? t.previewNoPay : t.projectClosed}
     </Button>
+  )
+}
+
+function RewardList({ p, onPick, className }: { p: PublicProject; onPick: (rewardId: string) => void; className?: string }) {
+  const { t, f } = useI18n()
+  const preview = useContext(PreviewCtx) !== null
+  if (!p.rewards.length) return null
+  const open = isOpen(p) && !preview
+  return (
+    <div className={className}>
+      <h6 className="text-neutral-700">{t.rewards}</h6>
+      <div className="flex flex-col gap-2">
+        {p.rewards.map((r) => {
+          const left = r.limit === null ? null : Math.max(0, r.limit - r.claimed)
+          const pickable = open && left !== 0
+          const counts = [f(r.backers === 1 ? t.rewardBackersOne : t.rewardBackers, { n: fmt(r.backers) }), left === null ? null : left === 0 ? t.soldOut : f(t.rewardLeft, { n: fmt(left) })]
+          // The card is one big target; the title button stretches over it so "More" can sit inside.
+          return (
+            <article key={r.id} aria-label={r.title} className={cx('relative flex flex-col gap-1 rounded-md border border-divider p-3.5', pickable && 'hover:border-accent')}>
+              <span className="tnum text-[13px] text-accent-700">{f(t.rewardFrom, { sats: fmt(r.minSats) })}</span>
+              <button
+                type="button"
+                disabled={!pickable}
+                onClick={() => onPick(r.id)}
+                className="cursor-pointer text-left text-[15px] font-medium after:absolute after:inset-0 after:rounded-md after:content-[''] disabled:cursor-default"
+              >
+                {r.title}
+              </button>
+              {r.description && <ClampedText text={r.description} />}
+              <span className="tnum text-xs text-neutral-600">{counts.filter(Boolean).join(' · ')}</span>
+            </article>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+/** Up to three lines, with a toggle when the text is longer. */
+function ClampedText({ text }: { text: string }) {
+  const { t } = useI18n()
+  const ref = useRef<HTMLSpanElement>(null)
+  const id = useId()
+  const [expanded, setExpanded] = useState(false)
+  const [overflows, setOverflows] = useState(false)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el || expanded) return
+    const measure = () => setOverflows(el.scrollHeight > el.clientHeight + 1)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [text, expanded])
+  return (
+    <>
+      <span id={id} ref={ref} className={cx('text-sm whitespace-pre-line text-neutral-700', !expanded && 'line-clamp-3')}>
+        {text}
+      </span>
+      {(overflows || expanded) && (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-controls={id}
+          className="relative z-[1] cursor-pointer self-start text-[13px] text-accent-700 underline underline-offset-2"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? t.readLess : t.readMore}
+        </button>
+      )}
+    </>
   )
 }
 
@@ -251,9 +331,22 @@ function Leaderboard({ slug, compact }: { slug: string; compact?: boolean }) {
   )
 }
 
-function ActivityRow({ s, compact, now }: { s: Supporter; compact?: boolean; now: number }) {
+/** The reward a supporter chose, as the page shows it now (p is already localized); its name when they paid once it is gone. */
+const rewardTitle = (p: PublicProject, s: Supporter): string | null =>
+  s.reward && (p.rewards.find((r) => r.id === s.reward!.id)?.title ?? s.reward.title)
+
+function RewardTag({ title }: { title: string }) {
+  return (
+    <Tag tone="outline" icon="gift" className="ml-1.5 max-w-[180px] truncate align-middle">
+      {title}
+    </Tag>
+  )
+}
+
+function ActivityRow({ p, s, compact, now }: { p: PublicProject; s: Supporter; compact?: boolean; now: number }) {
   const { t, f } = useI18n()
   const { name: who, picture } = useSupporterIdentity(s)
+  const reward = rewardTitle(p, s)
   return (
     <div className="flex gap-2.5 border-b border-divider py-2 text-sm">
       {picture ? (
@@ -266,11 +359,13 @@ function ActivityRow({ s, compact, now }: { s: Supporter; compact?: boolean; now
       {compact ? (
         <span className="flex-1">
           {who} <span className="tnum text-accent-700">+{fmt(s.amountSats)}</span>
+          {reward && <RewardTag title={reward} />}
         </span>
       ) : (
         <div className="flex-1">
           <div>
             <b className="font-semibold">{who}</b> <span className="tnum">{f(t.sent, { amount: fmt(s.amountSats) })}</span>
+            {reward && <RewardTag title={reward} />}
           </div>
           {s.comment && <div className="text-neutral-700 italic">“{s.comment}”</div>}
         </div>
@@ -280,7 +375,8 @@ function ActivityRow({ s, compact, now }: { s: Supporter; compact?: boolean; now
   )
 }
 
-function Activity({ slug, compact, limit }: { slug: string; compact?: boolean; limit?: number }) {
+function Activity({ p, compact, limit }: { p: PublicProject; compact?: boolean; limit?: number }) {
+  const slug = p.slug
   const { t } = useI18n()
   const now = useNow(60_000)
   const q = useActivity(slug)
@@ -289,7 +385,7 @@ function Activity({ slug, compact, limit }: { slug: string; compact?: boolean; l
     <div>
       <h6 className="mt-0 text-neutral-700">{t.activity}</h6>
       {rows.map((s) => (
-        <ActivityRow key={s.invoiceId} s={s} compact={compact} now={now} />
+        <ActivityRow key={s.invoiceId} p={p} s={s} compact={compact} now={now} />
       ))}
       {!q.isPending && rows.length === 0 && <p className="py-3 text-sm text-neutral-600">{t.noActivity}</p>}
       {!limit && q.hasNextPage && (
@@ -315,7 +411,7 @@ async function shareNative(p: PublicProject) {
 
 // ─── 2a · Mobile ──────────────────────────────────────────────────────────────
 
-function MobileProject({ project: p, onContribute }: { project: PublicProject; onContribute: () => void }) {
+function MobileProject({ project: p, onContribute }: { project: PublicProject; onContribute: (rewardId?: string) => void }) {
   const { t } = useI18n()
   const navigate = useNavigate()
   const [tab, setTab] = useState<Tab>('story')
@@ -348,6 +444,7 @@ function MobileProject({ project: p, onContribute }: { project: PublicProject; o
           <Stat value={fmt(p.supporterCount)} label={t.backers} bordered />
           <Stat value={p.endsAt ? String(daysLeft(p.endsAt)) : '—'} label={t.daysLeft} bordered />
         </div>
+        <RewardList p={p} onPick={onContribute} className="mt-4" />
         <Tabs<Tab>
           className="mt-[18px]"
           aria-label={p.title}
@@ -368,13 +465,13 @@ function MobileProject({ project: p, onContribute }: { project: PublicProject; o
         ) : (
           <div className="flex flex-col gap-[22px] pt-3.5">
             <Leaderboard slug={p.slug} />
-            <Activity slug={p.slug} />
+            <Activity p={p} />
           </div>
         )}
       </div>
       <div className="fixed inset-x-0 bottom-0 z-20 flex gap-2.5 border-t border-divider bg-bg px-5 pt-3 pb-[26px]">
         <Button variant="secondary" iconOnly icon="share" className="size-12" aria-label={t.share} onClick={() => void shareNative(p)} />
-        <ContributeButton p={p} onClick={onContribute} className="h-12 flex-1 text-base" />
+        <ContributeButton p={p} onClick={() => onContribute()} className="h-12 flex-1 text-base" />
       </div>
     </div>
   )
@@ -391,7 +488,7 @@ function Stat({ value, label, bordered }: { value: string; label: string; border
 
 // ─── 2c · Desktop ─────────────────────────────────────────────────────────────
 
-function DesktopProject({ project: p, onContribute }: { project: PublicProject; onContribute: () => void }) {
+function DesktopProject({ project: p, onContribute }: { project: PublicProject; onContribute: (rewardId?: string) => void }) {
   const { t } = useI18n()
   const [tab, setTab] = useState<Tab>('story')
   const pct = pctOf(p)
@@ -427,8 +524,9 @@ function DesktopProject({ project: p, onContribute }: { project: PublicProject; 
               <div className="text-xs text-neutral-600">{t.daysLeft}</div>
             </div>
           </div>
-          <ContributeButton p={p} onClick={onContribute} className="h-12 w-full text-base" />
+          <ContributeButton p={p} onClick={() => onContribute()} className="h-12 w-full text-base" />
           <ShareButtons project={p} className="mt-2.5" />
+          <RewardList p={p} onPick={onContribute} className="mt-5" />
           <div className="mt-5 flex items-center gap-1.5 text-xs text-neutral-600">
             <Icon name="eyeOff" />
             {t.anonNote}
@@ -467,12 +565,12 @@ function DesktopProject({ project: p, onContribute }: { project: PublicProject; 
               )}
             </>
           ) : (
-            <Activity slug={p.slug} />
+            <Activity p={p} />
           )}
         </div>
         <div className="flex flex-col gap-7">
           <Leaderboard slug={p.slug} compact />
-          <Activity slug={p.slug} compact limit={5} />
+          <Activity p={p} compact limit={5} />
         </div>
       </div>
     </div>
