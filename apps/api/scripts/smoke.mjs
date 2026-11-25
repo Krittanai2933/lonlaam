@@ -307,9 +307,9 @@ assert.equal((await call('GET', `/api/projects/${projectId}/supporters?q=%25`, {
 const csvRes = await fetch(`${API}/api/projects/${projectId}/supporters?format=csv`, { headers: { authorization: `Bearer ${token}` } })
 assert.match(csvRes.headers.get('content-type'), /text\/csv/)
 const csv = (await csvRes.text()).trim().split('\r\n')
-assert.equal(csv[0], 'paid_at,name,amount_sats,comment')
+assert.equal(csv[0], 'paid_at,name,amount_sats,comment,reward,contact,reward_sent_at')
 assert.equal(csv.length, 3)
-assert.match(csv[2], /,Bob,21,good luck!$/)
+assert.match(csv[2], /,Bob,21,good luck!,,,$/)
 assert.equal((await call('GET', `/api/projects/${projectId}/supporters`, { token: bob.res.json.token })).status, 403, 'not onboarded')
 step('owner supporters: search, filter, CSV')
 
