@@ -569,6 +569,13 @@ export type CreateInvoiceResponse = Invoice
 /** GET /api/invoices/:id — polling fallback for clients without WebSocket. */
 export type GetInvoiceResponse = Invoice
 
+/**
+ * POST /api/invoices/:id/release — the supporter abandoned this invoice: a pending one gives up its
+ * reward so the slot is free again (paid later, it counts as support without a reward). 204, also
+ * when there was nothing to release; 404 for an unknown id.
+ */
+export type ReleaseInvoiceResponse = void
+
 // ─── Sprinkle (one payment, split across random projects) ──────────────────────
 //
 // Unlike project invoices this flow is custodial for a few seconds: the supporter pays the
@@ -785,7 +792,7 @@ export interface WsInvoiceMessage {
 
 /**
  * Broadcast to everyone watching the project when a reward's counts change (an invoice for it
- * was created, paid, or expired). Lists every current reward, so clients replace, never add.
+ * was created, paid, expired, or released). Lists every current reward, so clients replace, never add.
  */
 export interface WsRewardsMessage {
   type: 'rewards'

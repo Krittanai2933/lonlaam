@@ -1,7 +1,7 @@
 import { rateLimit } from '../lib/ratelimit'
 import type { CreateInvoiceResponse, GetInvoiceResponse, GetPublicProjectResponse, LeaderboardResponse, ListSupportersResponse } from '@nampu/types'
 import { LIMITS, PUBLIC_PAGE } from '@nampu/types'
-import { and, desc, eq, ne } from 'drizzle-orm'
+import { and, desc, eq, isNotNull, ne } from 'drizzle-orm'
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 import * as v from 'valibot'
@@ -129,6 +129,20 @@ export const publicRoutes = new Hono<AppEnv>()
     if (!row) throw notFound('invoice')
     c.header('cache-control', 'no-store')
     return c.json(toInvoice(row) satisfies GetInvoiceResponse)
+  })
+
+  // The unguessable invoice id is the capability, as for GET. Only a pending invoice changes, so a
+  // payment that lands first keeps its reward.
+  .post('/invoices/:id/release', async (c) => {
+    const id = c.req.param('id')
+    const [released] = await c.var.db
+      .update(invoices)
+      .set({ rewardId: null, rewardTitle: null, contact: null })
+      .where(and(eq(invoices.id, id), eq(invoices.status, 'pending'), isNotNull(invoices.rewardId)))
+      .returning({ projectId: invoices.projectId })
+    if (released) c.executionCtx.waitUntil(roomFor(c.env, released.projectId).rewardsChanged(released.projectId))
+    else if (!(await c.var.db.query.invoices.findFirst({ columns: { id: true }, where: eq(invoices.id, id) }))) throw notFound('invoice')
+    return c.body(null, 204)
   })
 
   // Upgrade handled by the project's Durable Object (Hibernation API).
