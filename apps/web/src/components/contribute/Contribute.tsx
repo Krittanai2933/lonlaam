@@ -188,7 +188,8 @@ function AmountForm({ c, desktop }: { c: Contribute; desktop?: boolean }) {
 
   return (
     <div className="flex flex-col gap-3.5">
-      <div className={cx('flex items-baseline justify-center gap-2 border-b border-accent pt-2.5 pb-1', desktop && 'justify-start')}>
+      {/* Sticky on desktop: picking a reward further down can raise the amount, and that must stay in view. */}
+      <div className={cx('flex items-baseline justify-center gap-2 border-b border-accent pt-2.5 pb-1', desktop && 'sticky top-0 z-10 justify-start bg-surface')}>
         {custom ? (
           <input
             ref={inputRef}
@@ -326,6 +327,12 @@ function PayPanel({ c, qrSize, desktop }: { c: Contribute; qrSize: number; deskt
       {!desktop && (
         <div className="tnum text-[26px] leading-[1.1] font-medium">
           {fmt(c.invoice.amountSats)} <span className="text-sm font-normal text-neutral-600">sats</span>
+        </div>
+      )}
+      {!desktop && c.reward && (
+        <div className="-mt-1.5 flex items-center gap-2 text-[13px] text-neutral-700">
+          <Icon name="gift" />
+          {c.reward.title}
         </div>
       )}
       <QRCode
