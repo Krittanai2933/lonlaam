@@ -8,6 +8,7 @@ import { signSupporterProof } from '../../lib/nostr'
 export type FlowState = 'amount' | 'loading' | 'invoice' | 'expired' | 'error' | 'success'
 
 export const PRESETS = [1000, 5000, 10000, 21000, 50000, 100000]
+const DEFAULT_AMOUNT = 21000
 
 /**
  * Contribute state machine (Invoice Sheet states): amount → loading → invoice → success | expired,
@@ -17,7 +18,7 @@ export const PRESETS = [1000, 5000, 10000, 21000, 50000, 100000]
 export function useContribute(project: PublicProject) {
   const qc = useQueryClient()
   const [state, setState] = useState<FlowState>('amount')
-  const [amount, setAmount] = useState(21000)
+  const [amount, setAmount] = useState(DEFAULT_AMOUNT)
   const [rewardId, setRewardId] = useState<string | null>(null)
   const [contact, setContact] = useState('')
   const reward = project.rewards.find((r) => r.id === rewardId) ?? null
@@ -31,6 +32,9 @@ export function useContribute(project: PublicProject) {
   const [amountError, setAmountError] = useState<string | null>(null)
   const [now, setNow] = useState(Date.now)
   const reqId = useRef(0)
+  // A new invoice waits for the previous one's reward to be released, or a limited reward
+  // could still count the supporter's own abandoned claim.
+  const releasing = useRef<Promise<unknown>>(Promise.resolve())
 
   const create = useCallback(async () => {
     const id = ++reqId.current
@@ -44,6 +48,7 @@ export function useContribute(project: PublicProject) {
         proof = await signSupporterProof(project.slug).catch(() => null)
         setNostrProof(proof)
       }
+      await releasing.current
       const inv = await api.createInvoice(project.slug, {
         amountSats: amount,
         ...(!anon && name.trim() && { supporterName: name.trim() }),
@@ -52,7 +57,7 @@ export function useContribute(project: PublicProject) {
         ...(reward && { rewardId: reward.id, contact: contact.trim() }),
       })
       if (id !== reqId.current) return
-      // Refresh "x left" for this supporter only; other viewers pick it up on their next load.
+      // The room broadcasts new counts too; this covers a socket that is down.
       if (reward) void qc.invalidateQueries({ queryKey: ['public', project.slug] })
       setInvoice(inv)
       setState('invoice')
@@ -87,11 +92,24 @@ export function useContribute(project: PublicProject) {
     [project.rewards],
   )
 
+  /** Back to the amount step. A live invoice gives its reward back, so picking it again works. */
   const reset = useCallback(() => {
     reqId.current++
+    if (state === 'invoice' && invoice) releasing.current = api.releaseInvoice(invoice.id).catch(() => {})
     setInvoice(null)
     setState('amount')
-  }, [])
+  }, [state, invoice])
+
+  /** Closing the flow: after a payment or a cancelled invoice, the next one starts fresh. */
+  const leave = useCallback(() => {
+    const finished = state === 'success' || state === 'invoice'
+    reset()
+    if (!finished) return
+    setAmount(DEFAULT_AMOUNT)
+    setRewardId(null)
+    setContact('')
+    setMessage('')
+  }, [state, reset])
 
   // Countdown + expiry.
   useEffect(() => {
@@ -184,6 +202,7 @@ export function useContribute(project: PublicProject) {
     secsLeft,
     create,
     reset,
+    leave,
     /** Pending invoice the user might lose by closing. */
     hasLiveInvoice: state === 'invoice',
   }
