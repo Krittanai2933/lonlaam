@@ -119,7 +119,7 @@ export async function installNip07(page: Page, sk = nostrKey().sk) {
 export type RelayProfiles = Map<string, { name?: string; picture?: string }>
 
 /** 1×1 PNG served for any https://img.test/… profile picture. */
-const PIXEL = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64')
+export const PIXEL = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64')
 
 /**
  * Every test starts in Thai, light theme, and fails if the page throws or logs an error.

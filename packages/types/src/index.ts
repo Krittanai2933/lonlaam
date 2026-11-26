@@ -229,6 +229,8 @@ export interface Reward {
   minSats: number
   /** How many can be claimed; null = unlimited. */
   limit: number | null
+  /** A URL from POST /api/projects/:id/images of this project; null = no picture. */
+  image: string | null
 }
 
 export interface PublicReward extends Reward {

@@ -12,7 +12,8 @@ import { newRewardId, rewardGaps, type FormState } from './useProjectForm'
 
 export interface StepProps {
   form: FormState
-  set: <K extends keyof FormState>(key: K, value: FormState[K]) => void
+  /** A function value updates from the latest state (for results that arrive after an await). */
+  set: <K extends keyof FormState>(key: K, value: FormState[K] | ((prev: FormState[K]) => FormState[K])) => void
   project: Project | undefined
   creator: Creator
   desktop: boolean
@@ -380,12 +381,12 @@ function CellInput({ value, onChange, ...rest }: { value: string; onChange: (v: 
 
 // ─── 4 · Rewards ──────────────────────────────────────────────────────────────
 
-export function RewardsStep({ form, set, project, desktop, fieldErrors }: StepProps) {
+export function RewardsStep({ form, set, project, desktop, fieldErrors, ensureProject }: StepProps) {
   const { t, f } = useI18n()
   const rs = form.rewards
   const claimed = new Map(project?.rewards.map((r) => [r.id, r.claimed]))
   const setR = (i: number, patch: Partial<Reward>) => set('rewards', rs.map((r, j) => (j === i ? { ...r, ...patch } : r)))
-  const add = () => rs.length < LIMITS.rewards.max && set('rewards', [...rs, { id: newRewardId(), title: '', description: '', minSats: 0, limit: null }])
+  const add = () => rs.length < LIMITS.rewards.max && set('rewards', [...rs, { id: newRewardId(), title: '', description: '', minSats: 0, limit: null, image: null }])
   const remove = (id: string) => set('rewards', rs.filter((r) => r.id !== id))
   // Supporters who chose it keep it on the dashboard, but nobody new can, so ask first.
   const [removing, setRemoving] = useState<Reward | null>(null)
@@ -440,6 +441,11 @@ export function RewardsStep({ form, set, project, desktop, fieldErrors }: StepPr
                 <Textarea id={id} className="min-h-20" maxLength={LIMITS.rewards.description.max} value={r.description} onChange={(e) => setR(i, { description: e.target.value })} />
               )}
             </Field>
+            <RewardImage
+              image={r.image}
+              ensureProject={ensureProject}
+              onChange={(image) => set('rewards', (prev) => prev.map((x) => (x.id === r.id ? { ...x, image } : x)))}
+            />
             {n > 0 && <div className="tnum text-xs text-neutral-600">{f(t.rewardClaimed, { n: fmt(n) })}</div>}
           </section>
         )
@@ -472,6 +478,65 @@ export function RewardsStep({ form, set, project, desktop, fieldErrors }: StepPr
       >
         <div className="dialog-body">{removing && f(t.removeRewardBody, { title: removing.title, n: fmt(claimed.get(removing.id) ?? 0) })}</div>
       </Dialog>
+    </div>
+  )
+}
+
+function RewardImage({ image, ensureProject, onChange }: { image: string | null; ensureProject: StepProps['ensureProject']; onChange: (image: string | null) => void }) {
+  const { t } = useI18n()
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const onFile = async (file: File) => {
+    setError(null)
+    if (file.size > LIMITS.cover.maxBytes) return setError(t.fileTooLarge)
+    const p = await ensureProject()
+    if (!p) return setError(t.needTitleSlug)
+    setUploading(true)
+    try {
+      onChange((await api.uploadImage(p.id, file)).url)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t.somethingWrong)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <div className="field">
+      <label>{t.rewardImage}</label>
+      <input
+        ref={fileRef}
+        type="file"
+        accept={LIMITS.cover.types.join(',')}
+        hidden
+        onChange={(e) => {
+          if (e.target.files?.[0]) void onFile(e.target.files[0])
+          e.target.value = ''
+        }}
+      />
+      {image ? (
+        <div className="relative max-w-[320px]">
+          <img src={image} alt="" className="aspect-[4/3] w-full rounded-md border border-divider object-cover" />
+          <div className="absolute right-2 bottom-2 flex gap-2">
+            <Button variant="secondary" className="bg-bg" icon="image" onClick={() => fileRef.current?.click()} loading={uploading}>
+              {t.edit}
+            </Button>
+            <Button variant="secondary" className="bg-bg" iconOnly icon="x" aria-label={t.removeRewardImage} onClick={() => onChange(null)} />
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          className="flex h-12 w-full cursor-pointer items-center justify-center gap-1.5 rounded-md border border-dashed border-neutral-400 text-[13px] text-neutral-600 hover:border-accent"
+        >
+          <Icon name="image" />
+          {uploading ? t.uploading : t.addRewardImage}
+        </button>
+      )}
+      {error && <div className="mt-1.5 text-xs text-danger">{error}</div>}
     </div>
   )
 }

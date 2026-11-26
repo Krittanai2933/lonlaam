@@ -251,7 +251,7 @@ function AmountForm({ c, desktop }: { c: Contribute; desktop?: boolean }) {
 function RewardPicker({ c }: { c: Contribute }) {
   const { t, f } = useI18n()
   const name = useId()
-  const option = (id: string | null, title: string, sub: ReactNode, disabled = false) => {
+  const option = (id: string | null, title: string, sub: ReactNode, disabled = false, image: string | null = null) => {
     const on = (c.reward?.id ?? null) === id
     return (
       <label
@@ -264,6 +264,7 @@ function RewardPicker({ c }: { c: Contribute }) {
           <span className="block text-sm font-medium">{title}</span>
           {sub && <span className="tnum block text-xs text-neutral-600">{sub}</span>}
         </span>
+        {image && <img src={image} alt="" loading="lazy" className="size-10 shrink-0 rounded-sm border border-divider object-cover" />}
       </label>
     )
   }
@@ -274,7 +275,7 @@ function RewardPicker({ c }: { c: Contribute }) {
       {c.rewards.map((r) => {
         const left = r.limit === null ? null : Math.max(0, r.limit - r.claimed)
         const sub = [f(t.rewardFrom, { sats: fmt(r.minSats) }), left === null ? null : left === 0 ? t.soldOut : f(t.rewardLeft, { n: fmt(left) })]
-        return option(r.id, r.title, sub.filter(Boolean).join(' · '), left === 0 && c.reward?.id !== r.id)
+        return option(r.id, r.title, sub.filter(Boolean).join(' · '), left === 0 && c.reward?.id !== r.id, r.image)
       })}
       {c.reward && (
         <>

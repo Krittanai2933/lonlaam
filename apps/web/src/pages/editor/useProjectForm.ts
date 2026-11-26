@@ -205,7 +205,11 @@ export function useProjectForm(project: Project | undefined) {
     return () => clearTimeout(t)
   }, [form, project, flush])
 
-  const set = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => setForm((f) => ({ ...f, [key]: value })), [])
+  const set = useCallback(
+    <K extends keyof FormState>(key: K, value: FormState[K] | ((prev: FormState[K]) => FormState[K])) =>
+      setForm((f) => ({ ...f, [key]: typeof value === 'function' ? value(f[key]) : value })),
+    [],
+  )
 
   return { form, set, setForm, save, flush, fieldErrors, setFieldErrors }
 }

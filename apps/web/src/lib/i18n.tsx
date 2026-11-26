@@ -92,6 +92,9 @@ const th = {
   rewardLimit: 'จำนวนจำกัด', // (added)
   noLimit: 'ไม่จำกัด', // (added)
   rewardDesc: 'รายละเอียดรางวัล', // (added)
+  rewardImage: 'รูปรางวัล (ไม่บังคับ)', // (added)
+  addRewardImage: 'เพิ่มรูป · 4:3 · ไม่เกิน 5 MB', // (added)
+  removeRewardImage: 'ลบรูปรางวัล', // (added)
   removeReward: 'ลบรางวัล', // (added)
   rewardClaimed: 'มีคนเลือกแล้ว {n} คน', // (added)
   rewardsInvalid: 'ตรวจรางวัลอีกครั้ง: ต้องมีชื่อและยอดขั้นต่ำ', // (added)
@@ -447,6 +450,9 @@ const en: Dict = {
   rewardLimit: 'Limited to',
   noLimit: 'No limit',
   rewardDesc: 'What backers get',
+  rewardImage: 'Picture (optional)',
+  addRewardImage: 'Add a picture · 4:3 · max 5 MB',
+  removeRewardImage: 'Remove picture',
   removeReward: 'Remove reward',
   rewardClaimed: 'Chosen by {n} so far',
   rewardsInvalid: 'Check the rewards: each needs a name and a minimum amount.',
