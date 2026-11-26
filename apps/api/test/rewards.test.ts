@@ -3,12 +3,12 @@ import { LIMITS } from '@nampu/types'
 import * as v from 'valibot'
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '../src/lib/errors'
-import { chooseReward, rewardsSchema, toPublicRewards } from '../src/lib/rewards'
+import { chooseReward, rewardsSchema, storedRewards, toPublicRewards } from '../src/lib/rewards'
 import type { ProjectRow } from '../src/db/schema'
 import { toOwnerSupporter, toPublicProject, toSupporter } from '../src/serialize'
 
 const claims = (o: Record<string, number>) => new Map(Object.entries(o).map(([id, n]) => [id, { claimed: n, backers: n }]))
-const reward = (over: Partial<Reward> = {}): Reward => ({ id: 'a1', title: 'Postcard', description: '', minSats: 1000, limit: null, ...over })
+const reward = (over: Partial<Reward> = {}): Reward => ({ id: 'a1', title: 'Postcard', description: '', minSats: 1000, limit: null, image: null, ...over })
 
 describe('rewardsSchema', () => {
   const parse = (input: unknown) => v.safeParse(rewardsSchema, input)
@@ -45,6 +45,38 @@ describe('rewardsSchema', () => {
     const many = Array.from({ length: LIMITS.rewards.max + 1 }, (_, i) => reward({ id: `r${i}` }))
     expect(parse(many).success).toBe(false)
     expect(parse(many.slice(1)).success).toBe(true)
+  })
+})
+
+describe('storedRewards', () => {
+  const issue = (fn: () => unknown) => {
+    try {
+      fn()
+    } catch (e) {
+      if (e instanceof ApiError) return { status: e.status, paths: e.issues?.map((i) => i.path) }
+      throw e
+    }
+    throw new Error('expected an ApiError')
+  }
+
+  it('keeps only the R2 key of an image uploaded to the project, whatever the host', () => {
+    const rs = storedRewards(
+      [reward({ id: 'a', image: 'https://media.lonlaam.com/images/p1/abc.webp' }), reward({ id: 'b', image: 'http://localhost:8787/media/images/p1/x-y.png' }), reward({ id: 'c' })],
+      'p1',
+    )
+    expect(rs.map((r) => r.image)).toEqual(['images/p1/abc.webp', 'images/p1/x-y.png', null])
+  })
+
+  it("refuses another project's image, a cover, a foreign file, and any image before the project exists", () => {
+    expect(issue(() => storedRewards([reward({ image: 'https://media.lonlaam.com/images/p2/abc.webp' })], 'p1'))).toEqual({ status: 422, paths: ['rewards.0.image'] })
+    expect(issue(() => storedRewards([reward({ image: 'https://media.lonlaam.com/covers/p1/abc.webp' })], 'p1'))).toMatchObject({ status: 422 })
+    expect(issue(() => storedRewards([reward({ image: 'https://evil.example/x.svg' })], 'p1'))).toMatchObject({ status: 422 })
+    expect(issue(() => storedRewards([reward({ image: 'https://media.lonlaam.com/images/p1/abc.webp' })], null))).toMatchObject({ status: 422 })
+  })
+
+  it('reads rewards saved before pictures existed as having none', () => {
+    const r = v.safeParse(rewardsSchema, [{ id: 'old', title: 'Postcard', description: '', minSats: 1000, limit: null }])
+    expect(r.output).toMatchObject([{ id: 'old', image: null }])
   })
 })
 
@@ -149,5 +181,12 @@ describe('reward translation', () => {
       { id: 'a', title: 'Postcard', description: 'ส่งจากดอย' },
       { id: 'b', title: 'เสื้อ', description: 'ไซส์ M' },
     ])
+  })
+
+  it('serves a stored image key from the media base, and old rows without one as null', () => {
+    const { image: _i, ...old } = reward({ id: 'b' })
+    const rows = { ...row, status: 'active', rewards: [reward({ id: 'a', image: 'images/p1/abc.webp' }), old] } as ProjectRow
+    const p = toPublicProject(rows, { handle: 'h', displayName: 'H', npub: null }, 'https://m', undefined)
+    expect(p.rewards.map((r) => r.image)).toEqual(['https://m/images/p1/abc.webp', null])
   })
 })

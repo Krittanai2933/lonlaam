@@ -218,6 +218,7 @@ function RewardList({ p, onPick, className }: { p: PublicProject; onPick: (rewar
           // The card is one big target; the title button stretches over it so "More" can sit inside.
           return (
             <article key={r.id} aria-label={r.title} className={cx('relative flex flex-col gap-1 rounded-md border border-divider p-3.5', pickable && 'hover:border-accent')}>
+              {r.image && <img src={r.image} alt="" loading="lazy" className="-mx-3.5 -mt-3.5 mb-2 aspect-[4/3] w-[calc(100%+1.75rem)] max-w-none rounded-t-md object-cover" />}
               <span className="tnum text-[13px] text-accent-700">{f(t.rewardFrom, { sats: fmt(r.minSats) })}</span>
               <button
                 type="button"

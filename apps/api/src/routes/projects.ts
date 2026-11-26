@@ -23,7 +23,7 @@ import { type AppEnv, mediaBase } from '../context'
 import { isUniqueViolation } from '../db/errors'
 import { invoices, type ProjectRow, projects } from '../db/schema'
 import { ApiError, notFound } from '../lib/errors'
-import { rewardClaims, rewardsSchema } from '../lib/rewards'
+import { rewardClaims, rewardsSchema, storedRewards } from '../lib/rewards'
 import { pageLimit, supporterPage, supporterRows } from '../lib/supporters'
 import { requestTranslation, sourceText, translateToEnglish, translationSourceHash } from '../lib/translate'
 import { msatToSats, newId } from '../lib/util'
@@ -174,7 +174,7 @@ export const projectRoutes = new Hono<AppEnv>()
           category: body.category ?? null,
           goalSats: body.goalSats ?? null,
           milestones: body.milestones ?? [],
-          rewards: body.rewards ?? [],
+          rewards: storedRewards(body.rewards ?? [], null),
           endsAt: body.endsAt ?? null,
           createdAt: now,
           updatedAt: now,
@@ -200,7 +200,7 @@ export const projectRoutes = new Hono<AppEnv>()
     if (body.body !== undefined) patch.body = body.body
     if (body.category !== undefined) patch.category = body.category
     if (body.milestones !== undefined) patch.milestones = body.milestones
-    if (body.rewards !== undefined) patch.rewards = body.rewards
+    if (body.rewards !== undefined) patch.rewards = storedRewards(body.rewards, current.id)
     if (body.endsAt !== undefined) {
       if (body.endsAt !== null && body.endsAt <= now) throw endsAtInPast()
       patch.endsAt = body.endsAt

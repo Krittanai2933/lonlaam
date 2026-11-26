@@ -17,12 +17,30 @@ export const rewardsSchema = v.pipe(
       description: v.pipe(v.string(), v.trim(), v.maxLength(R.description.max)),
       minSats: v.pipe(v.number(), v.safeInteger(), v.minValue(LIMITS.invoiceSats.min), v.maxValue(LIMITS.invoiceSats.max)),
       limit: v.nullable(v.pipe(v.number(), v.safeInteger(), v.minValue(R.limit.min), v.maxValue(R.limit.max))),
+      image: v.optional(v.nullable(v.pipe(v.string(), v.maxLength(500))), null),
     }),
   ),
   v.maxLength(R.max),
   v.check((rs) => new Set(rs.map((r) => r.id)).size === rs.length, 'reward ids must be unique'),
   v.transform((rs): Reward[] => [...rs].sort((a, b) => a.minSats - b.minSats)),
 )
+
+// The host is ignored: only the R2 key is stored, and it is served from the current media base.
+const IMAGE_KEY = /\/(images\/([\w-]+)\/[\w-]+\.(?:jpg|png|webp|gif))$/
+
+/** Rewards as D1 stores them: `image` is the R2 key of an upload to this project, not a URL. 422 otherwise. */
+export function storedRewards(rewards: Reward[], projectId: string | null): Reward[] {
+  return rewards.map((r, i) => {
+    if (r.image === null) return r
+    const m = IMAGE_KEY.exec(r.image)
+    if (!m || m[2] !== projectId) {
+      throw new ApiError(422, 'validation_failed', 'reward image must be uploaded to this project', [
+        { path: `rewards.${i}.image`, message: 'must be an image of this project' },
+      ])
+    }
+    return { ...r, image: m[1]! }
+  })
+}
 
 /** By reward id. claimed: paid plus unpaid invoices that can still be paid; backers: paid. */
 export type RewardClaims = Map<string, { claimed: number; backers: number }>

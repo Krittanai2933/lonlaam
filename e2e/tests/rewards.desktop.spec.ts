@@ -1,5 +1,5 @@
 import type { ListOwnerSupportersResponse, Project, ProjectStatsResponse, PublicProject } from '@nampu/types'
-import { APP, call, expect, seedCreator, seedProject, signInAs, test, wallet } from '../fixtures'
+import { APP, call, expect, PIXEL, seedCreator, seedProject, signInAs, test, wallet } from '../fixtures'
 
 // 6b step 4 (rewards) → 2c reward cards → 3c reward picker → 5b rewards to send.
 
@@ -236,4 +236,43 @@ test('rewards: releasing an invoice is idempotent and only touches a pending one
   await call('POST', `/api/invoices/${paid.id}/release`)
   const after = await call<ListOwnerSupportersResponse>('GET', `/api/projects/${p.id}/supporters?filter=reward`, { token: c.token })
   expect(after.supporters.map((s) => s.reward?.contact)).toEqual(['y'])
+})
+
+test('rewards: a picture shows on the card and in the picker, and only the project\'s own uploads are accepted', async ({ page }) => {
+  const c = await seedCreator()
+  const p = await seedProject(c.token)
+  await call('PATCH', `/api/projects/${p.id}`, {
+    token: c.token,
+    body: { rewards: [{ id: 'mug', title: 'แก้วกาแฟ', description: '', minSats: 2000, limit: null }, { id: 'pin', title: 'Pin', description: '', minSats: 1000, limit: null }] },
+  })
+  await signInAs(page, c.token)
+
+  await page.goto(`/projects/${p.id}/edit?step=3`)
+  const mug = page.getByRole('region', { name: 'แก้วกาแฟ' })
+  await mug.locator('input[type=file]').setInputFiles({ name: 'mug.png', mimeType: 'image/png', buffer: PIXEL })
+  await expect(mug.getByRole('button', { name: 'ลบรูปรางวัล' })).toBeVisible()
+  const saved = () => call<Project>('GET', `/api/projects/${p.id}`, { token: c.token })
+  await expect.poll(async () => (await saved()).rewards.find((r) => r.id === 'mug')?.image).toMatch(new RegExp(`/images/${p.id}/[\\w-]+\\.png$`))
+  const image = (await saved()).rewards.find((r) => r.id === 'mug')!.image!
+  expect((await saved()).rewards.find((r) => r.id === 'pin')!.image).toBeNull()
+
+  await page.goto(`/p/${p.slug}`)
+  await expect(page.getByRole('article', { name: /แก้วกาแฟ/ }).locator('img')).toHaveAttribute('src', image)
+  await expect(page.getByRole('article', { name: /Pin/ }).locator('img')).toHaveCount(0)
+  await page.getByRole('article', { name: /แก้วกาแฟ/ }).getByRole('button').click()
+  await expect(page.getByRole('dialog').locator('label', { hasText: 'แก้วกาแฟ' }).locator('img')).toHaveAttribute('src', image)
+
+  // An upload of another project, or any other URL, is refused.
+  const other = await seedProject(c.token)
+  await expect(
+    call('PATCH', `/api/projects/${other.id}`, { token: c.token, body: { rewards: [{ id: 'x', title: 'X', description: '', minSats: 1, limit: null, image }] } }),
+  ).rejects.toThrow(/422.*rewards\.0\.image/)
+  await expect(
+    call('PATCH', `/api/projects/${p.id}`, { token: c.token, body: { rewards: [{ id: 'x', title: 'X', description: '', minSats: 1, limit: null, image: 'https://evil.example/x.png' }] } }),
+  ).rejects.toThrow(/422/)
+
+  // Removing it in the editor clears it everywhere.
+  await page.goto(`/projects/${p.id}/edit?step=3`)
+  await page.getByRole('region', { name: 'แก้วกาแฟ' }).getByRole('button', { name: 'ลบรูปรางวัล' }).click()
+  await expect.poll(async () => (await saved()).rewards.find((r) => r.id === 'mug')?.image).toBeNull()
 })
